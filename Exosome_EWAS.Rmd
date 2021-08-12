@@ -1,0 +1,193 @@
+---
+title: "Exosome_EWAS"
+author: "Qi Yan"
+date: "08/11/2021"
+output: 
+  html_document:
+    toc: TRUE # table of content true
+    toc_depth: 3  # upto three depths of headings (specified by #, ## and ###)
+    toc_float: true
+    number_sections: FALSE
+    theme: united  
+    highlight: tango
+    df_print: paged
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(WGCNA)
+library(tidyverse)
+library(xlsx)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(qqman)
+# library(ggbiplot)
+library(ggpubr)
+library(doParallel)
+library(RColorBrewer)
+library(sqldf)
+library(glmnet)
+library(caret)
+library(impute)
+library(missMethyl)
+library(limma)
+library(clusterProfiler)
+library(magrittr)
+library(dendextend)
+library(zoo)
+library(e1071)
+library(ROCR)
+
+options(stringsAsFactors = FALSE)
+allowWGCNAThreads()
+```
+
+## Data inspection
+
+### Sample annotation
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+sample_matrix <- read.csv("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T)
+dim(sample_matrix)
+head(sample_matrix)
+colnames(sample_matrix)
+
+sample_matrix %>% group_by(BH.ID) %>% summarise(n=n()) # Each BH.ID has two samples, one baseline, one second
+sample_matrix %>% group_by(Time) %>% summarise(n=n()) # 18 participants, 36 samples; For methylation matrix, will change sample ID into BH.ID_time
+sample_matrix %>% group_by(Tx) %>% summarise(n=n())
+sample_matrix %>% group_by(Group) %>% summarise(n=n())
+```
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+library("table1")
+
+table1::table1(~ Age + Gender + Group, data=sample_matrix[which(sample_matrix$Time == "BaselineDraw"),])
+table1::table1(~ Age + CD8.naive + CD4.naive + CD8pCD28nCD45RAn + PlasmaBlast + CD4T + Gran + Mono + NK + AgeAccelerationResidual + IEAA + AgeAccelerationResidualHannum + EEAA + DNAmAgeSkinBloodClockAdjAge + AgeAccelPheno + AgeAccelGrim + DNAmADM + DNAmB2M + DNAmCystatinC + DNAmGDF15 + DNAmLeptin + DNAmPACKYRS + DNAmPAI1 + DNAmTIMP1 | Time, data=sample_matrix, overall = F)
+```
+
+
+### EPIC array DNA methylation data
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/dat0Noob_EPIC.RData") # Load the methylation data
+methy_matrix <- dat0; rm(dat0)
+dim(methy_matrix)
+head(methy_matrix)
+colnames(methy_matrix)
+sum(is.na(methy_matrix)) # Any missing?
+
+# Change column names
+sample_matrix <- 
+  sample_matrix %>%
+  dplyr::mutate(Basename = paste("X", Basename, sep = "")) %>%
+  dplyr::arrange(Basename) %>%
+  dplyr::mutate(Time = ifelse(Time == "BaselineDraw", "Before", "After"))
+rowname_methy <- paste(sample_matrix$BH.ID, sample_matrix$Time, sep = "_")
+sample_matrix$subject_ID <- rowname_methy
+
+methy_matrix <- 
+  methy_matrix %>%
+  dplyr::select(-1)
+methy_matrix <- methy_matrix[,order(colnames(methy_matrix))]
+colnames(methy_matrix) <- rowname_methy
+```
+
+## EWAS
+
+### PART I. Paired t-tests for aging clocks
+
+http://www.sthda.com/english/wiki/paired-samples-t-test-in-r
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+library("rstatix")
+sample_matrix <- read.csv("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T) %>%
+  dplyr::mutate(Time = ifelse(Time == "BaselineDraw", "Before", "After")) %>%
+  dplyr::mutate(Time = factor(Time, levels = c("Before", "After")))
+
+
+paired_t <- function(input_matrix = sample_matrix, var){
+  temp_stat <- input_matrix %>%
+    dplyr::group_by(Time) %>%
+    dplyr::summarise(mean = mean(.data[[var]])) %>%
+    dplyr::select(mean) %>%
+    c()
+  fm <- as.formula(paste(var, "~ Time"))
+  stat.test <- t_test(fm, paired = TRUE, detailed = TRUE, ref.group = "Before", data = input_matrix) %>%
+    add_significance()
+  temp_stat <- unlist(c(temp_stat, stat.test$p)) # mean by group and two-sided p value from paired t test
+  # Create a box plot
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, color = "Time", line.color = "gray", line.size = 0.5, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time")
+  # Add p-value and significance levels
+  stat.test <- stat.test %>% add_xy_position(x = "Time")
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before")
+
+  return(list(temp_stat, temp_plot))
+}
+
+temp_out <- paired_t(var = "AgeAccelGrim")
+```
+
+### PART II. Identify DMPs using linear mixed model
+
+https://rdrr.io/cran/CpGassoc/man/CpGassoc-package.html
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+library(CpGassoc)
+
+# Crude model (2.736211 hr)
+start <- Sys.time()
+CpGassoc_result <- CpGassoc::cpg.assoc(methy_matrix, indep = sample_matrix$Time, chip.id=sample_matrix$BH.ID, random=TRUE, large.data=FALSE)
+Sys.time() - start
+
+DMP_final_output_CpGassoc <- CpGassoc_result$results
+
+save(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+
+# Cell type adjusted model (3.108104 hr)
+start <- Sys.time()
+celltype <- sample_matrix %>% dplyr::select(CD8.naive, CD8pCD28nCD45RAn, PlasmaBlast, CD4T, NK, Mono, Gran)
+CpGassoc_result <- CpGassoc::cpg.assoc(methy_matrix[1:10,], indep = sample_matrix$Time, covariates = celltype, chip.id=sample_matrix$BH.ID, random=TRUE, large.data=FALSE)
+Sys.time() - start
+
+DMP_final_output_CpGassoc_celltypes <- CpGassoc_result$results
+
+save(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+```
+
+https://ase.tufts.edu/bugs/guide/assets/mixed_model_guide.html
+https://cran.r-project.org/web/packages/afex/vignettes/introduction-mixed-models.pdf
+https://ourcodingclub.github.io/tutorials/mixed-models/
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+library(lmerTest)
+
+EWAS_matrix <- as.data.frame(t(methy_matrix))
+
+start <- Sys.time() # 5000 cpg - 5.46min
+result <- {}
+for (i in 1:5000) {
+  m0.lmer<-lmerTest::lmer(EWAS_matrix[,i] ~ Time + (1|BH.ID), sample_matrix)
+  temp_stat <- summary(m0.lmer)
+  temp_stat <- temp_stat$coefficients[2,c(4,5)]
+  result <- rbind(result, temp_stat)
+}
+row.names(result) <- colnames(EWAS_matrix)[1:5000]
+Sys.time() - start
+
+DMP_final_output_lmer <-
+  result %>%
+  as.data.frame() %>%
+  add_rownames(var = "CpG") %>%
+  dplyr::rename(t_value = "t value") %>%
+  dplyr::rename(raw_p = "Pr(>|t|)") %>%
+  dplyr::mutate(fdr = p.adjust(raw_p, method="BH"))
+
+save(DMP_final_output_lmer, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_lmer.RData")
+```
+
+### Questions
+
+1) What is the experiment design?
+2) What are Tx and group?
+3) Model used? mixed effect w/ random intercept? crude and adjusted for cell types? what about age?
