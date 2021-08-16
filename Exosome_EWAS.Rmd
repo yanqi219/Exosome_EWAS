@@ -66,7 +66,6 @@ table1::table1(~ Age + Gender + Group, data=sample_matrix[which(sample_matrix$Ti
 table1::table1(~ Age + CD8.naive + CD4.naive + CD8pCD28nCD45RAn + PlasmaBlast + CD4T + Gran + Mono + NK + AgeAccelerationResidual + IEAA + AgeAccelerationResidualHannum + EEAA + DNAmAgeSkinBloodClockAdjAge + AgeAccelPheno + AgeAccelGrim + DNAmADM + DNAmB2M + DNAmCystatinC + DNAmGDF15 + DNAmLeptin + DNAmPACKYRS + DNAmPAI1 + DNAmTIMP1 | Time, data=sample_matrix, overall = F)
 ```
 
-
 ### EPIC array DNA methylation data
 
 ```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
@@ -81,30 +80,65 @@ sum(is.na(methy_matrix)) # Any missing?
 sample_matrix <- 
   sample_matrix %>%
   dplyr::mutate(Basename = paste("X", Basename, sep = "")) %>%
-  dplyr::arrange(Basename) %>%
-  dplyr::mutate(Time = ifelse(Time == "BaselineDraw", "Before", "After"))
+  # dplyr::arrange(Basename) %>%
+  dplyr::mutate(Time = ifelse(Time == "BaselineDraw", "Before", "After")) %>%
+  dplyr::arrange(desc(Time), BH.ID)
 rowname_methy <- paste(sample_matrix$BH.ID, sample_matrix$Time, sep = "_")
 sample_matrix$subject_ID <- rowname_methy
 
 methy_matrix <- 
   methy_matrix %>%
-  dplyr::select(-1)
-methy_matrix <- methy_matrix[,order(colnames(methy_matrix))]
+  dplyr::select(sample_matrix$Basename)
+# methy_matrix <- methy_matrix[,order(colnames(methy_matrix))]
 colnames(methy_matrix) <- rowname_methy
+
+# save(sample_matrix, methy_matrix, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 ```
 
-## EWAS
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+# Distribution of the methylation levels
+mean_methy <- as.data.frame(apply(methy_matrix, 1, mean)) %>%
+  dplyr::rename(mean = "apply(methy_matrix, 1, mean)")
+ggpubr::ggdensity(mean_methy, x = "mean", fill = "lightgray",
+                  add = "mean", rug = TRUE, title = "Mean methylation levels of probes")
 
-### PART I. Paired t-tests for aging clocks
-
-http://www.sthda.com/english/wiki/paired-samples-t-test-in-r
+before <- as.data.frame(apply(methy_matrix[,which(sample_matrix$Time == "Before")], 1, mean)) %>%
+  dplyr::mutate(time = "Before")
+colnames(before) <- c("mean", "time")
+after <- as.data.frame(apply(methy_matrix[,which(sample_matrix$Time == "After")], 1, mean)) %>%
+  dplyr::mutate(time = "After")
+colnames(after) <- c("mean", "time")
+mean_methy_time <- rbind(before, after)
+ggpubr::ggdensity(mean_methy_time, x = "mean", add = "mean", rug = TRUE, color = "time", fill = "time", palette = c("#00AFBB", "#E7B800"), title = "Mean methylation levels of probes by time")
+```
 
 ```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
-library("rstatix")
-sample_matrix <- read.csv("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T) %>%
-  dplyr::mutate(Time = ifelse(Time == "BaselineDraw", "Before", "After")) %>%
-  dplyr::mutate(Time = factor(Time, levels = c("Before", "After")))
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+# PCA analysis
+pca.datExpr = mixOmics::pca(t(methy_matrix), ncomp = 10, center = TRUE, scale = TRUE)
+mixOmics::plotIndiv(pca.datExpr, ind.names = TRUE, group = sample_matrix$Time,
+          legend = TRUE, title = 'Principal Component Analysis (Time)')
+mixOmics::plotIndiv(pca.datExpr, ind.names = TRUE, group = sample_matrix$BH.ID,
+          legend = TRUE, title = 'Principal Component Analysis (Participant)')
+mixOmics::plotIndiv(pca.datExpr, ind.names = TRUE, group = sample_matrix$Group,
+          legend = TRUE, title = 'Principal Component Analysis (Group)') # Group showed some seperation
+```
 
+## DNAm clocks
+
+### Paired t-tests for DNAm clocks
+
+http://www.sthda.com/english/wiki/paired-samples-t-test-in-r
+http://www.cookbook-r.com/Statistical_analysis/t-test/
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+
+# library("rstatix")
+# sample_matrix <- read.csv("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T) %>%
+#   dplyr::mutate(Time = ifelse(Time == "BaselineDraw", "Before", "After")) %>%
+#   dplyr::mutate(Time = factor(Time, levels = c("Before", "After")))
 
 paired_t <- function(input_matrix = sample_matrix, var){
   temp_stat <- input_matrix %>%
@@ -113,26 +147,132 @@ paired_t <- function(input_matrix = sample_matrix, var){
     dplyr::select(mean) %>%
     c()
   fm <- as.formula(paste(var, "~ Time"))
-  stat.test <- t_test(fm, paired = TRUE, detailed = TRUE, ref.group = "Before", data = input_matrix) %>%
-    add_significance()
-  temp_stat <- unlist(c(temp_stat, stat.test$p)) # mean by group and two-sided p value from paired t test
+  stat.test <- t.test(data = input_matrix,fm, paired = TRUE, alternative = "two.sided")
+  # stat.test <- t_test(fm, paired = TRUE, detailed = TRUE, ref.group = "Before", data = input_matrix) %>%
+  #   add_significance()
+  temp_stat <- unlist(c(temp_stat, stat.test$estimate, stat.test$conf.int, stat.test$p.value)) # mean by group and two-sided p value from paired t test
+  names(temp_stat) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
   # Create a box plot
-  bxp <- ggpaired(input_matrix, x = "Time", y = var, color = "Time", line.color = "gray", line.size = 0.5, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time")
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 0.5, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time")
   # Add p-value and significance levels
-  stat.test <- stat.test %>% add_xy_position(x = "Time")
   temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before")
 
   return(list(temp_stat, temp_plot))
 }
 
-temp_out <- paired_t(var = "AgeAccelGrim")
+# DNAm clocks
+AgeAccelerationResidual <- paired_t(var = "AgeAccelerationResidual")
+AgeAccelerationResidualHannum <- paired_t(var = "AgeAccelerationResidualHannum")
+DNAmAgeSkinBloodClockAdjAge <- paired_t(var = "DNAmAgeSkinBloodClockAdjAge")
+AgeAccelPheno <- paired_t(var = "AgeAccelPheno")
+AgeAccelGrim <- paired_t(var = "AgeAccelGrim")
+
+statistics <- rbind(unlist(AgeAccelerationResidual[1]), unlist(AgeAccelerationResidualHannum[1]), unlist(DNAmAgeSkinBloodClockAdjAge[1]), unlist(AgeAccelPheno[1]), unlist(AgeAccelGrim[1])) %>%
+  as.data.frame() %>%
+  dplyr::mutate(clock = c("AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelPheno", "AgeAccelGrim"))
+
+# Forest plot
+nvar <- nrow(statistics)
+est <- statistics$difference
+lcl <- statistics$ci_low
+ucl <- statistics$ci_high
+
+# extract labels
+var.names <- statistics$clock
+est.t <- sprintf("%.2f", round(est,2))
+lcl.t <- sprintf("%.2f", round(lcl,2))
+ucl.t <- sprintf("%.2f", round(ucl,2))
+or.text <- paste0(est.t, " (", lcl.t, ",", ucl.t, ")")
+
+
+xlim <- c(-2, 2.5)
+y <- nvar:1
+png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_forest.png",
+    width=1200, height=700)
+par(mar=c(4, 11, 2, 15))
+plot.new()
+plot.window(xlim=xlim, ylim=c(0.5, nvar+1.5), xlab="a")
+points(x=est, y=y, pch=17, cex=1.5)
+axis(1, at=seq(-2, max(xlim), by=.5), cex.axis=1.5)
+arrows(lcl, y, ucl, y, code=3, length=0.05, angle=90, lwd=2)
+segments(0, 0, 0, nvar+.5,  col="grey",lwd = 2)
+mtext(var.names, at=y, adj=1, side=2, las=2, cex = 1.5)
+mtext("DNAm clocks", at=nvar+0.8, adj=1, side=2, las=2, 
+      cex=1.5, font=2)
+mtext(or.text, at=y, adj=0, side=4, las=2, cex = 1.5)
+mtext("FollowUp-baseline (95% CI)", at=nvar+0.8, adj=0.2, side=4, las=2, 
+      cex=1.5, font=2)
+dev.off()
+
 ```
 
-### PART II. Identify DMPs using linear mixed model
+## EWAS
+
+### Global methylation
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+
+# Global methylation level for each participant
+global <- sample_matrix %>%
+  dplyr::mutate(global_mean = apply(methy_matrix, 2, mean)) 
+
+bxp <- ggpubr::ggpaired(global, x = "Time", y = "global_mean", id = "BH.ID", color = "Time", line.color = "gray", line.size = 0.5, palette = "jco", order = c("Before", "After"), ylab = "global_mean", xlab = "Time")
+bxp + 
+  stat_compare_means(method = "t.test", paired = T, ref.group = "Before") + 
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "darkred",
+               position = position_dodge(width = 0.8)) + 
+  stat_summary(fun = mean, colour = "red", 
+               position = position_dodge(width = 0.8),
+               geom = "text", vjust = -0.7, 
+               aes(label = round(..y.., digits = 5)))
+  
+t.test(data = global, global_mean ~ Time, paired = TRUE, alternative = "two.sided") # Global mean methylation level was significanly higher after treatment
+```
+
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+
+# Genomic region
+# 1=TSS1500, 2=TSS200, 3=5’UTR, 4=1stExon, 5=gene body, 6=3’UTR
+# import data
+library(FEM)
+data(probeEPICfemanno)
+
+FEM_annotation <- as.data.frame(cbind(probeEPICfemanno$probeID, probeEPICfemanno$GeneGroup)); rm(probeEPICfemanno)
+colnames(FEM_annotation) <- c("probeID", "location")
+
+glob_methy <- function(X, region, class = sample_matrix$Time){
+  region_CpG <- FEM_annotation$probeID[which(FEM_annotation$location == region)]
+  region_SEM_matrix <- as.data.frame(X[, which(colnames(X) %in% region_CpG)])
+  global_methylation <- as.data.frame(apply(region_SEM_matrix, 1, mean))
+  global_methylation <- cbind(class, global_methylation)
+  colnames(global_methylation) <- c("Time", "Global_methylation")
+  ttest <- t.test(data = global_methylation, Global_methylation ~ Time, paired = TRUE, alternative = "two.sided")
+  temp <- ttest$estimate
+  temp <- as.data.frame(t(temp))
+  temp$pvalue <- ttest$p.value
+  return(temp)
+}
+
+final <- data.frame()
+for (i in 1:6) {
+  temp <- glob_methy(region = i, class = sample_matrix$Time, X = t(methy_matrix))
+  final <- rbind(final, temp)
+}
+
+rownames(final) <- c("TSS1500", "TSS200", "5UTR", "1stExon", "GeneBody", "3UTR") 
+final # Mean methylation levels for probes within gene body and 3'UTR region were significantly higher after treatment
+```
+
+### Identify DMPs using linear mixed model
+
+__Method 1: CpGassoc__
 
 https://rdrr.io/cran/CpGassoc/man/CpGassoc-package.html
 
-```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 library(CpGassoc)
 
 # Crude model (2.736211 hr)
@@ -142,7 +282,7 @@ Sys.time() - start
 
 DMP_final_output_CpGassoc <- CpGassoc_result$results
 
-save(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+# save(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
 
 # Cell type adjusted model (3.108104 hr)
 start <- Sys.time()
@@ -152,16 +292,16 @@ Sys.time() - start
 
 DMP_final_output_CpGassoc_celltypes <- CpGassoc_result$results
 
-save(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+# save(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
 ```
+
+__Method 2: lmer__
 
 https://ase.tufts.edu/bugs/guide/assets/mixed_model_guide.html
 https://cran.r-project.org/web/packages/afex/vignettes/introduction-mixed-models.pdf
 https://ourcodingclub.github.io/tutorials/mixed-models/
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-library(lmerTest)
-
 EWAS_matrix <- as.data.frame(t(methy_matrix))
 
 start <- Sys.time() # 5000 cpg - 5.46min
@@ -183,11 +323,155 @@ DMP_final_output_lmer <-
   dplyr::rename(raw_p = "Pr(>|t|)") %>%
   dplyr::mutate(fdr = p.adjust(raw_p, method="BH"))
 
-save(DMP_final_output_lmer, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_lmer.RData")
+# save(DMP_final_output_lmer, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_lmer.RData")
 ```
+
+Both methods generate same results. CpGassoc is much faster for high-dimensional data.
+
+__Add mean difference and CI__
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+library(rstatix)
+
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+
+start <- Sys.time()
+mean_diff <- function(x){
+  input_matrix <- data.frame(cbind(x, sample_matrix$Time))
+  colnames(input_matrix) <- c("cpg", "Time")
+  input_matrix$cpg <- as.numeric(input_matrix$cpg)
+  stat.test <- t_test(cpg ~ Time, paired = TRUE, detailed = TRUE, ref.group = "Before", data = input_matrix) %>% add_significance()
+  temp_stat <- c(-stat.test$estimate, -stat.test$conf.low, -stat.test$conf.high) # Why the directions are all wrong...
+  return(temp_stat)
+}
+
+mean_diff_output <- 
+  t(apply(methy_matrix, 1, function(x) mean_diff(x))) %>%
+  as.data.frame()
+colnames(mean_diff_output) <- c("mean_diff", "ci_low", "ci_high")
+Sys.time() - start
+
+DMP_final_output_CpGassoc <- cbind(DMP_final_output_CpGassoc, mean_diff_output)
+DMP_final_output_CpGassoc_celltypes <- cbind(DMP_final_output_CpGassoc_celltypes, mean_diff_output)
+
+# save(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+# save(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+```
+
+__QQ plots__
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+
+{
+  set.seed(1106)
+  gg_qqplot <- function(ps, ci = 0.95) {
+    n  <- length(ps)
+    df <- data.frame(
+      observed = -log10(sort(ps)),
+      expected = -log10(ppoints(n)),
+      clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+      cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1))
+    )
+    log10Pe <- expression(paste("Expected -log"[10], plain(P)))
+    log10Po <- expression(paste("Observed -log"[10], plain(P)))
+    ggplot(df) +
+      geom_ribbon(
+        mapping = aes(x = expected, ymin = clower, ymax = cupper),
+        alpha = 0.1
+      ) +
+      geom_point(aes(expected, observed), shape = 1, size = 3) +
+      geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+      # geom_line(aes(expected, cupper), linetype = 2, size = 0.5) +
+      # geom_line(aes(expected, clower), linetype = 2, size = 0.5) +
+      xlab(log10Pe) +
+      ylab(log10Po)
+  }
+  inflation <- function(ps) {
+    chisq <- qchisq(1 - ps, 1)
+    lambda <- median(chisq) / qchisq(0.5, 1)
+    lambda
+  }
+}
+
+qqplot <- function(dataset = x){
+  p1 <- gg_qqplot(dataset$P.value) +
+    theme_bw(base_size = 10) +
+    annotate(
+      geom = "text",
+      x = -Inf,
+      y = Inf,
+      hjust = -0.15,
+      vjust = 1 + 0.15 * 3,
+      label = sprintf("λ = %.2f", inflation(dataset$P.value)),
+      size = 8
+    ) +
+    theme(
+      axis.ticks = element_line(size = 0.5),
+      panel.grid = element_blank()
+      # panel.grid = element_line(size = 0.5, color = "grey80")
+    ) +
+    labs(title = paste("QQ plot"))
+  p2 <- ggplot(dataset, aes(x=P.value))+
+    geom_histogram(color="darkblue", fill="lightblue")+
+    labs(title="Histogram of p-values",x="p-value", y = "Count")+
+    theme_classic()
+  cowplot::plot_grid(p1, p2, ncol=2, labels=LETTERS[1:2])
+}
+
+# Crude model
+qqplot(dataset = DMP_final_output_CpGassoc[which(!is.na(DMP_final_output_CpGassoc$P.value)),])
+# Celltype adjusted model
+qqplot(dataset = DMP_final_output_CpGassoc_celltypes[which(!is.na(DMP_final_output_CpGassoc_celltypes$P.value)),])
+```
+
+### Annotation
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# Load annotation file
+EPIC_annotation <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/EPIC/annotationEPIC.csv.gz"), header = T)
+
+# Crude model
+load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+DMP_final_output_CpGassoc <- 
+  DMP_final_output_CpGassoc %>%
+  dplyr::left_join(EPIC_annotation, by = c("CPG.Labels" = "IDREF")) %>%
+  dplyr::mutate(chr = gsub("^.{0,3}", "", chr)) %>%
+  dplyr::mutate(chr = ifelse(chr == "X", 23, ifelse(chr == "Y", 24, chr))) %>%
+  dplyr::mutate(chr = as.numeric(chr)) %>%
+  dplyr::filter(!is.na(FDR)) # Two CpGs have NA value
+
+DMP_final_output_CpGassoc %>% # Total number of probes per chromosome
+  dplyr::group_by(chr) %>%
+  dplyr::summarise(n = n())
+
+print(paste("Number of significant CpGs (pvalue < 10e-8, crude model):", sum(DMP_final_output_CpGassoc$P.value<10e-8)))
+print(paste("Number of significant genes (pvalue < 10e-8, crude model):",DMP_final_output_CpGassoc %>% dplyr::filter(UCSC_RefGene_Name!=""&P.value<10e-8) %>% nrow))
+  
+print(paste("Number of significant CpGs (pvalue < 10e-7, crude model):", sum(DMP_final_output_CpGassoc$P.value<10e-7)))
+print(paste("Number of significant genes (pvalue < 10e-7, crude model):",DMP_final_output_CpGassoc %>% dplyr::filter(UCSC_RefGene_Name!=""&P.value<10e-7) %>% nrow))
+
+print(paste("Number of significant CpGs (FDR < 0.05, crude model):", sum(DMP_final_output_CpGassoc$FDR<0.05)))
+print(paste("Number of significant genes (FDR < 0.05, crude model):",DMP_final_output_CpGassoc %>% dplyr::filter(UCSC_RefGene_Name!=""&FDR<0.05) %>% nrow))
+
+DMP_final_output_CpGassoc %>% # Top 20 CpGs
+  dplyr::arrange(P.value) %>%
+  head(n=20)
+
+# Generate Manhattan plot
+ManhattanPlot <- 
+  DMP_final_output_CpGassoc %>%
+  dplyr::select("CPG.Labels","chr","pos", "P.value")
+colnames(ManhattanPlot) <- c("ID","CHR","BP","P")
+manhattan(ManhattanPlot, main = "PD and Methylation Manhattan Plot", cex = 0.5, cex.axis = 0.8, ylim = c(0, 11), genomewideline=-log10(5e-04), suggestiveline = F)
+```
+
 
 ### Questions
 
 1) What is the experiment design?
 2) What are Tx and group?
-3) Model used? mixed effect w/ random intercept? crude and adjusted for cell types? what about age?
+3) Filtering probes?
+  - right now there are 866238 probes, less than 866836 EPIC probes, what are those probes that were removed? Shold we further remove sex chromosomes?
