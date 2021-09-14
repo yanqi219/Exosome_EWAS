@@ -45,10 +45,148 @@ allowWGCNAThreads()
 
 ## Data inspection
 
+### Update patient 182040
+
+After inspection, we found methylation data for patient 192040 to be weird. Therefore, new methylation profile was extracted. Here we need to update the methylation matrix as well as sample matrix (DNAm ages).
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+library(minfi) 
+library(RPMM) 
+library(lumi) 
+library(wateRmelon)
+library(IlluminaHumanMethylation450kmanifest) 
+sheetf = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/SampleSheet_james.csv" 
+targets = read.csv(sheetf)
+baseDir="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/" 
+targets$Basename = paste0(baseDir, targets$Basename) #For the read.metharray.exp() function: the base directory is used if you set targets = NULL, 
+#if recursive = T then the function searches the base directory and all subdirectories for .idat file pairs (green and red) 
+#otherwise it looks in the provided vector at targets = <vector> for file paths. 
+#Depending on the size of methylation array and how much RAM you have (such as if it's for 450K array), 
+#I would suggest splitting it into ~200 .idat file pairs (green and red) per run or else you will run out of RAM if you have around 16gb or 32gb.
+#If force = T it just means that it ignores the usual error given if the .idat files are not all of the same size
+RGset = read.metharray.exp(base = baseDir, targets = targets, recursive=T, force=F) 
+# manifest <- getManifest(RGset)
+# manifest
+#I also find it helpful to save the files after every step (like the RGset file) because my session crashes a lot if I don't allocate enough RAM 
+Mset <- preprocessNoob(RGset)
+print("created Methylset") 
+# QCs
+# qc <- getQC(Mset)
+# head(qc)
+# plotQC(qc)
+# densityBeanPlot(Mset)
+# qcReport(RGset, pdf= "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/qcReport.pdf")
+Rset <- ratioConvert(Mset, what = "both", keepCN = TRUE)
+beta <- getBeta(Rset)
+#this step takes the longest which is why I print something out to see if it's done 
+# gset = mapToGenome(Mset) # this will generate missing probes
+# grset = ratioConvert(gset, what = "both")
+# getSex(grset, cutoff = -2)
+#str(grset) 
+#I like to just double check this to make sure nothing went wrong 
+# beta = getBeta(grset) 
+finalnorm = data.frame(ID = row.names(beta),beta)
+saveRDS(finalnorm, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/patient_182040_methy.rds")
+
+# For clock calculator
+finalnorm = data.frame(ProbeID = row.names(beta),beta)
+
+datMiniAnnotation=read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/datMiniAnnotation3.csv")
+match1=match(datMiniAnnotation[,1], finalnorm[,1] )
+temp <- data.frame(matrix(ncol = ncol(finalnorm), nrow = sum(is.na(match1))))
+colnames(temp) <- colnames(finalnorm)
+temp$ProbeID <- as.character(datMiniAnnotation[is.na(match1),1])
+finalnorm <- rbind(finalnorm, temp)
+# make sure you output numeric variables...
+for (i in 2:dim(finalnorm)[[2]]){finalnorm[,i]=
+as.numeric(as.character(gsub(x=finalnorm[,i],pattern="\"",replacement="")))}
+finalnorm <- finalnorm %>%
+  dplyr::filter(ProbeID %in% datMiniAnnotation$Name)
+finalnorm <- finalnorm[match(datMiniAnnotation$Name, finalnorm$ProbeID),]
+
+# match1=match(datMiniAnnotation[,1], finalnorm[,1] )
+# dat0Reduced=finalnorm[match1,]
+# dat0Reduced[,1]=as.character(dat0Reduced[,1])
+# dat0Reduced[is.na(match1),1]= as.character(datMiniAnnotation[is.na(match1),1])
+# datout=data.frame(dat0Reduced)
+# # make sure you output numeric variables...
+# for (i in 2:dim(datout)[[2]] ){datout[,i]=
+# as.numeric(as.character(gsub(x=datout[,i],pattern="\"",replacement=""))) }
+
+write.csv(finalnorm, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/patient_182040_methy.csv", row.names = F, col.names = T)
+```
+
+__Combine the new data with the original methyl matrix__
+
+Only use the Zymo one.
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# New data
+new_patient_sample <- read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/SampleSheet_james.csv" ) %>% dplyr::filter(grepl('ZR', Original.ID)) %>% dplyr::rename(Original_ID = "Original.ID")
+new_patient_ID <- new_patient_sample %>% dplyr::pull(Basename) %>% paste("X", ., sep = "")
+new_patient_clock <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/patient_182040_methy.output.csv", header = T) %>% dplyr::filter(SampleID %in% new_patient_ID) %>% dplyr::rename(Original_ID = "Original.ID")
+# Old data
+sample_matrix <- read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T)
+sample_matrix_patient2040 <- sample_matrix %>% dplyr::filter(BH.ID == 182040) # seperate them into patient 192040 and the rest
+sample_matrix_left <- sample_matrix %>% dplyr::filter(BH.ID != 182040); rm(sample_matrix)
+cov_patient2040 <- intersect(colnames(sample_matrix_patient2040), colnames(new_patient_clock)) # get new covs
+cov_patient2040_left <- colnames(sample_matrix_patient2040)[which(!(colnames(sample_matrix_patient2040) %in% colnames(new_patient_clock)))] # rest of covs
+sample_matrix_patient2040 <- cbind(sample_matrix_patient2040[,cov_patient2040_left], new_patient_clock[,cov_patient2040])
+sample_matrix_patient2040 <- sample_matrix_patient2040[,colnames(sample_matrix_left)]
+sample_matrix_new <- rbind(sample_matrix_patient2040, sample_matrix_left)
+write.csv(sample_matrix_new, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement_update182040.csv", row.names = F)
+```
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# Old methyl data
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/dat0Noob_EPIC.RData")
+sample_matrix <- read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T) %>% dplyr::filter(BH.ID == 182040) %>% dplyr::pull(Basename) %>% paste("X", ., sep = "")
+dat0 <- dat0[,which(!(colnames(dat0) %in% sample_matrix))]
+# New methyl data
+new_patient_ID <- read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/SampleSheet_james.csv" ) %>% dplyr::filter(grepl('ZR', Original.ID)) %>% dplyr::rename(Original_ID = "Original.ID") %>% dplyr::pull(Basename) %>% paste("X", ., sep = "")
+new_patient <- readRDS(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/patient_182040_methy.rds") %>% dplyr::select(ID, new_patient_ID)
+new_patient <- new_patient[match(dat0$ID, new_patient$ID),]
+
+dat0 <- cbind(dat0, new_patient[,-1])
+save(dat0, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/dat0Noob_EPIC_update182040.RData")
+```
+
+Sanity check
+
+```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+load(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/dat0Noob_EPIC_update182040.RData")
+
+finalnorm <- dat0 %>% dplyr::rename(ProbeID = "ID")
+
+datMiniAnnotation=read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/datMiniAnnotation3.csv")
+match1=match(datMiniAnnotation[,1], finalnorm[,1] )
+temp <- data.frame(matrix(ncol = ncol(finalnorm), nrow = sum(is.na(match1))))
+colnames(temp) <- colnames(finalnorm)
+temp$ProbeID <- as.character(datMiniAnnotation[is.na(match1),1])
+finalnorm <- rbind(finalnorm, temp)
+# make sure you output numeric variables...
+for (i in 2:dim(finalnorm)[[2]]){finalnorm[,i]=
+as.numeric(as.character(gsub(x=finalnorm[,i],pattern="\"",replacement="")))}
+finalnorm <- finalnorm %>%
+  dplyr::filter(ProbeID %in% datMiniAnnotation$Name)
+finalnorm <- finalnorm[match(datMiniAnnotation$Name, finalnorm$ProbeID),]
+
+# match1=match(datMiniAnnotation[,1], finalnorm[,1] )
+# dat0Reduced=finalnorm[match1,]
+# dat0Reduced[,1]=as.character(dat0Reduced[,1])
+# dat0Reduced[is.na(match1),1]= as.character(datMiniAnnotation[is.na(match1),1])
+# datout=data.frame(dat0Reduced)
+# # make sure you output numeric variables...
+# for (i in 2:dim(datout)[[2]] ){datout[,i]=
+# as.numeric(as.character(gsub(x=datout[,i],pattern="\"",replacement=""))) }
+
+write.csv(finalnorm, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/Patient_182040/patient_all_methy.csv", row.names = F, col.names = T)
+```
+
 ### Sample annotation
 
 ```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
-sample_matrix <- read.csv("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement.csv", header = T)
+sample_matrix <- read.csv("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsClockClement_update182040.csv", header = T)
 dim(sample_matrix)
 head(sample_matrix)
 colnames(sample_matrix)
@@ -69,7 +207,7 @@ table1::table1(~ Age + CD8.naive + CD4.naive + CD8pCD28nCD45RAn + PlasmaBlast + 
 ### EPIC array DNA methylation data
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/dat0Noob_EPIC.RData") # Load the methylation data
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/dat0Noob_EPIC_update182040.RData") # Load the methylation data
 methy_matrix <- dat0; rm(dat0)
 dim(methy_matrix)
 head(methy_matrix)
@@ -92,11 +230,11 @@ methy_matrix <-
 # methy_matrix <- methy_matrix[,order(colnames(methy_matrix))]
 colnames(methy_matrix) <- rowname_methy
 
-# save(sample_matrix, methy_matrix, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+save(sample_matrix, methy_matrix, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 ```
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 # Distribution of the methylation levels
 mean_methy <- as.data.frame(apply(methy_matrix, 1, mean)) %>%
   dplyr::rename(mean = "apply(methy_matrix, 1, mean)")
@@ -113,10 +251,10 @@ mean_methy_time <- rbind(before, after)
 ggpubr::ggdensity(mean_methy_time, x = "mean", add = "mean", rug = TRUE, color = "time", fill = "time", palette = c("#00AFBB", "#E7B800"), title = "Mean methylation levels of probes by time")
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/mean_methy_probe v2.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/mean_methy_probe v2.png)
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 # PCA analysis
 pca.datExpr = mixOmics::pca(t(methy_matrix), ncomp = 10, center = TRUE, scale = TRUE)
 mixOmics::plotIndiv(pca.datExpr, ind.names = TRUE, group = sample_matrix$Time,
@@ -127,20 +265,20 @@ mixOmics::plotIndiv(pca.datExpr, ind.names = TRUE, group = sample_matrix$Group,
           legend = TRUE, title = 'Principal Component Analysis (Group)') # Group showed some seperation
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/pca_time.png)
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/pca_BHid.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/pca_time.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/pca_BHid.png)
 
 ## DNAm clocks
 
 ### Correlations between clocks
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 ClockMatrix <- 
   sample_matrix %>%
   dplyr::filter(Time == "Before") %>%
-  dplyr::select("Age", "AgeAccelerationResidual", "AgeAccelerationResidualHannum", "DNAmAgeSkinBloodClockAdjAge", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
-colnames(ClockMatrix) <- c("Age", "AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
+  dplyr::select("Age", "AgeAccelerationResidual", "AgeAccelerationResidualHannum", "DNAmAgeSkinBloodClockAdjAge", "DNAmTLAdjAge", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
+colnames(ClockMatrix) <- c("Age", "AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelTL", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
 cor_matrix <- cor(ClockMatrix)
 
 get_upper_tri <- function(cormat){
@@ -165,7 +303,7 @@ ggheatmap <- ggplot(data = melted_cormat, aes(Var2, Var1, fill = value)) +
         legend.title = element_text(size = 40)) + 
   coord_fixed()
 
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_corr.png", width=2800, height=2800)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_corr.png", width=2800, height=2800)
 ggheatmap + 
   geom_text(aes(Var2, Var1, label = round(value,2)), color = "black", size = 14) +
   theme(
@@ -183,7 +321,7 @@ ggheatmap +
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_corr.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_corr.png)
 
 ### Paired t-tests for DNAm clocks
 
@@ -194,7 +332,7 @@ http://www.cookbook-r.com/Statistical_analysis/t-test/
 paired_t <- function(input_matrix = sample_matrix, var){
   temp_stat <- input_matrix %>%
     dplyr::group_by(Time) %>%
-    dplyr::summarise(mean = mean(.data[[var]])) %>%
+    dplyr::summarise(mean = mean(.data[[var]], na.rm=TRUE)) %>%
     dplyr::select(mean) %>%
     c()
   fm <- as.formula(paste(var, "~ Time"))
@@ -204,35 +342,55 @@ paired_t <- function(input_matrix = sample_matrix, var){
   temp_stat <- unlist(c(temp_stat, stat.test$estimate, stat.test$conf.int, stat.test$p.value)) # mean by group and two-sided p value from paired t test
   names(temp_stat) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
   # Create a box plot
-  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 1, point.size = 2, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none")
-  bxp <- ggpar(bxp, font.tickslab = c(14,"bold"), font.x = c(14,"bold"), font.y = c(14,"bold"))
+  Means <- input_matrix %>% group_by(Time) %>% 
+    summarize(Avg = mean(.data[[var]]))
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 2.5, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+    geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 9) +
+    geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") + 
+    theme(plot.margin = unit(c(4,4,4,4), "lines")) +
+    coord_cartesian(clip = "off")
+  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(23,"bold"), font.y = c(23,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 9, fontface = "bold")
   # Add p-value and significance levels
-  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 5)
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
   
   return(list(temp_stat, temp_plot))
 }
 ```
 
-__DNAm clocks__
+#### DNAm clocks
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 # DNAm clocks
 AgeAccelerationResidual <- paired_t(var = "AgeAccelerationResidual")
 AgeAccelerationResidualHannum <- paired_t(var = "AgeAccelerationResidualHannum")
 DNAmAgeSkinBloodClockAdjAge <- paired_t(var = "DNAmAgeSkinBloodClockAdjAge")
+DNAmTLAdjAge <- paired_t(var = "DNAmTLAdjAge")
 AgeAccelPheno <- paired_t(var = "AgeAccelPheno")
 AgeAccelGrim <- paired_t(var = "AgeAccelGrim")
 
-statistics <- rbind(unlist(AgeAccelerationResidual[1]), unlist(AgeAccelerationResidualHannum[1]), unlist(DNAmAgeSkinBloodClockAdjAge[1]), unlist(AgeAccelPheno[1]), unlist(AgeAccelGrim[1])) %>%
+statistics <- rbind(unlist(AgeAccelerationResidual[1]), unlist(AgeAccelerationResidualHannum[1]), unlist(DNAmAgeSkinBloodClockAdjAge[1]), unlist(DNAmTLAdjAge[1]),unlist(AgeAccelPheno[1]), unlist(AgeAccelGrim[1])) %>%
   as.data.frame() %>%
-  dplyr::mutate(clock = c("AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelPheno", "AgeAccelGrim"))
+  dplyr::mutate(clock = c("AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelTL", "AgeAccelPheno", "AgeAccelGrim"))
+statistics_DNAmAge <- statistics %>%
+  dplyr::mutate(Type = "DNAmAge") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
 ```
 
 __Figures for DNAm clocks__
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# # Rescale summary statistics
+# statistics_rescale <- statistics
+# statistics_rescale[1,1:5] <- statistics[1,1:5]/10
+# statistics_rescale[2,1:5] <- statistics[2,1:5]/10000
+# statistics_rescale[3,1:5] <- statistics[3,1:5]/10000
+# statistics_rescale[4,1:5] <- statistics[4,1:5]/100
+# statistics_rescale[5,1:5] <- statistics[5,1:5]/1000
+# statistics_rescale[6,1:5] <- statistics[6,1:5]/1000
+
 # Forest plot: https://rpubs.com/NorCalBiostat/forestplot
 nvar <- nrow(statistics)
 est <- statistics$difference
@@ -247,7 +405,7 @@ or.text <- paste0(est.t, " (", lcl.t, ",", ucl.t, ")")
 
 xlim <- c(-2, 2.5)
 y <- nvar:1
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_forest.png", width=1200, height=700)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_forest.png", width=1200, height=700)
 par(mar=c(4, 11, 2, 15))
 plot.new()
 plot.window(xlim=xlim, ylim=c(0.5, nvar+1.5), xlab="a")
@@ -264,19 +422,20 @@ mtext("FollowUp-baseline (95% CI)", at=nvar+0.8, adj=0.2, side=4, las=2,
 dev.off()
 
 # Paired barplots
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_boxplot.png", width=1200, height=700)
-ggarrange(AgeAccelerationResidual[2][[1]], AgeAccelerationResidualHannum[2][[1]], DNAmAgeSkinBloodClockAdjAge[2][[1]], AgeAccelPheno[2][[1]], AgeAccelGrim[2][[1]], labels = c("AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelPheno", "AgeAccelGrim"),
-          ncol = 3, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/DNAmClock_boxplot.png", width=2200, height=1600)
+# ggarrange(AgeAccelerationResidual[2][[1]], AgeAccelerationResidualHannum[2][[1]], DNAmAgeSkinBloodClockAdjAge[2][[1]], DNAmTLAdjAge[2][[1]], AgeAccelPheno[2][[1]], AgeAccelGrim[2][[1]], labels = c("AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelTL","AgeAccelPheno", "AgeAccelGrim"),
+#           ncol = 3, nrow = 2, vjust = 1,font.label = list(size = 22, face = "bold"))
+ggarrange(AgeAccelerationResidual[2][[1]], AgeAccelerationResidualHannum[2][[1]], DNAmAgeSkinBloodClockAdjAge[2][[1]], DNAmTLAdjAge[2][[1]], AgeAccelPheno[2][[1]], AgeAccelGrim[2][[1]], labels = NA, ncol = 3, nrow = 2, vjust = 1,font.label = list(size = 22, face = "bold"))
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_forest.png)
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_boxplot.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_forest.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_boxplot.png)
 
-__GrimAge Components__
+#### GrimAge Components
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 # DNAm clocks
 DNAmADMAdjAge <- paired_t(var = "DNAmADMAdjAge")
@@ -291,6 +450,9 @@ DNAmTIMP1AdjAge <- paired_t(var = "DNAmTIMP1AdjAge")
 statistics <- rbind(unlist(DNAmADMAdjAge[1]), unlist(DNAmB2MAdjAge[1]), unlist(DNAmCystatinCAdjAge[1]), unlist(DNAmGDF15AdjAge[1]), unlist(DNAmLeptinAdjAge[1]), unlist(DNAmPACKYRSAdjAge[1]), unlist(DNAmPAI1AdjAge[1]), unlist(DNAmTIMP1AdjAge[1])) %>%
   as.data.frame() %>%
   dplyr::mutate(clock = c("DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge"))
+statistics_GrimAge <- statistics %>%
+  dplyr::mutate(Type = "GrimAge") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
 ```
 
 __Figures for GrimAge Components__
@@ -320,7 +482,7 @@ or.text <- paste0(est.t, " (", lcl.t, ",", ucl.t, ")")
 
 xlim <- c(-4, 4)
 y <- nvar:1
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_forest.png", width=1200, height=700)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_forest.png", width=1200, height=700)
 par(mar=c(4, 14, 2, 18))
 plot.new()
 plot.window(xlim=xlim, ylim=c(0.5, nvar+1.5), xlab="a")
@@ -337,18 +499,21 @@ mtext("FollowUp-baseline (95% CI)", at=nvar+0.8, adj=0.2, side=4, las=2,
 dev.off()
 
 # Paired barplots
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_boxplot.png", width=1200, height=700)
-ggarrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], labels = c("DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge"), ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GrimAgeComp_boxplot.png", width=2933, height=1600)
+# ggarrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], labels = c("DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge"), ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 22, face = "bold"))
+ggarrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], labels = NA, ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 22, face = "bold"))
+# 
+# gridExtra::grid.arrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], nrow = 2)
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_forest.png)
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_boxplot.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_forest.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_boxplot.png)
 
-__Cell types__
+#### Cell types
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 # DNAm clocks
 CD8.naive <- paired_t(var = "CD8.naive")
@@ -363,6 +528,9 @@ Gran <- paired_t(var = "Gran")
 statistics <- rbind(unlist(CD8.naive[1]), unlist(CD4.naive[1]), unlist(CD8pCD28nCD45RAn[1]), unlist(PlasmaBlast[1]), unlist(CD4T[1]), unlist(NK[1]), unlist(Mono[1]), unlist(Gran[1])) %>%
   as.data.frame() %>%
   dplyr::mutate(clock = c("CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran"))
+statistics_celltype <- statistics %>%
+  dplyr::mutate(Type = "CellType") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
 ```
 
 __Figures for Cell types__
@@ -392,7 +560,7 @@ or.text <- paste0(est.t, " (", lcl.t, ",", ucl.t, ")")
 
 xlim <- c(-4, 4)
 y <- nvar:1
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_forest.png", width=1200, height=700)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_forest.png", width=1200, height=700)
 par(mar=c(4, 14, 2, 18))
 plot.new()
 plot.window(xlim=xlim, ylim=c(0.5, nvar+1.5), xlab="a")
@@ -409,13 +577,101 @@ mtext("FollowUp-baseline (95% CI)", at=nvar+0.8, adj=0.2, side=4, las=2,
 dev.off()
 
 # Paired barplots
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_boxplot.png", width=1200, height=700)
-ggarrange(CD8.naive[2][[1]], CD4.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = c("CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran"), ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/CellType_boxplot.png", width=2933, height=1600)
+# ggarrange(CD8.naive[2][[1]], CD4.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = c("CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran"), ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
+ggarrange(CD8.naive[2][[1]], CD4.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = NA, ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_forest.png)
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_boxplot.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_forest.png)
+
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/CellType_boxplot.png)
+
+#### Biomarkers
+
+From James: "We are exploring the use of exosomes to treat hypercholesterolemia. Therefore we would appreciate your not including the data from our Biomarkers T-Scores spreadsheet for Lipoprotein A. Everything else is available to be put into a paper at this time."
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+biomarker <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/ResultsBiomarkerQi.csv", header = T)
+biomarker_matrix <- biomarker %>%
+  dplyr::filter(Column1 == "Y") %>%
+  dplyr::select(PatientID, TestName, Result, BH.ID, Time) %>%
+  tidyr::pivot_wider(names_from = TestName, values_from = Result)
+biomarker_matrix[,4:ncol(biomarker_matrix)] <- apply(biomarker_matrix[,4:ncol(biomarker_matrix)], 2, as.numeric)
+biomarker_matrix <- 
+  biomarker_matrix %>%
+  dplyr::arrange(desc(Time), BH.ID)
+# save(methy_matrix, sample_matrix, biomarker_matrix, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+```
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+
+# Need to change some of the variables' name
+biomarker_matrix_temp <- biomarker_matrix %>%
+  dplyr::filter(!(BH.ID %in% c(250758, 877118)))
+colnames(biomarker_matrix_temp) <- colnames(biomarker_matrix) %>%
+  gsub(pattern = ('/'), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = ('('), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = (')'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = ('-'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = (' '), replacement = '', x = .,fixed = T)
+
+col_name <- colnames(biomarker_matrix_temp[,4:ncol(biomarker_matrix_temp)])
+statistics <- {}
+for (i in 1:length(col_name)) {
+  variable <- col_name[i]
+  try(temp <- paired_t(var = variable, input_matrix = biomarker_matrix_temp))
+  statistics <- rbind(statistics, unlist(temp[1]))
+  temp <- NA
+}
+statistics <- statistics %>%
+  as.data.frame() %>%
+  dplyr::mutate(clock = colnames(biomarker_matrix[,4:ncol(biomarker_matrix)]))
+statistics_biomarker <- statistics %>%
+  dplyr::mutate(Type = "Biomarker") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
+```
+
+Combine them all together
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+final_result <- rbind(statistics_DNAmAge, statistics_GrimAge, statistics_celltype, statistics_biomarker) %>%
+  dplyr::rename(Variable = "clock") %>%
+  dplyr::filter(!(Variable %in% c("Cytomegalovirus (CMV) Ab IgM", "Immature Grans (Abs)", "Immature Granulocytes", "Lipoprotein (a)")))
+# write.csv(final_result, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/paired  t-test of all measurements.csv", row.names = F, col.names = T)
+```
+
+__Figures for DNAm clocks__
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+statistics_rescale <- statistics %>%
+  dplyr::filter(!(clock %in% c("Cytomegalovirus (CMV) Ab IgM", "Immature Grans (Abs)", "Immature Granulocytes", "Lipoprotein (a)"))) %>%
+  dplyr::filter(p_value < 0.05)
+
+# Need to change some of the variables' name
+biomarker_matrix_temp <- biomarker_matrix %>%
+  dplyr::filter(!(BH.ID %in% c(250758, 877118))) %>%
+  dplyr::select(PatientID, BH.ID, Time, statistics_rescale$clock)
+colnames(biomarker_matrix_temp) <- colnames(biomarker_matrix_temp) %>%
+  gsub(pattern = ('/'), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = ('('), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = (')'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = ('-'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = (' '), replacement = '', x = .,fixed = T)
+
+col_name <- colnames(biomarker_matrix_temp[,4:ncol(biomarker_matrix_temp)])
+pdf(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/Biomarkers_boxplot.pdf", width=16, height=16)
+par(mfrow=c(5,5))
+  for (i in 1:length(col_name)) {
+    variable <- col_name[i]
+    try(temp <- paired_t(var = variable, input_matrix = biomarker_matrix_temp))
+    plot(temp[2][[1]])
+  }
+dev.off()
+```
+
 Question: which type of plot should be used in the manuscript? Do we want to put sex-stratified results in the main manuscript or supplements?
  
 ## EWAS
@@ -425,7 +681,7 @@ Question: which type of plot should be used in the manuscript? Do we want to put
 __Global__
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 # Global methylation level for each participant
 global <- sample_matrix %>%
@@ -447,7 +703,7 @@ t.test(data = global, global_mean ~ Time, paired = TRUE, alternative = "two.side
 __Genomic Regions__
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 # Genomic region
 # 1=TSS1500, 2=TSS200, 3=5’UTR, 4=1stExon, 5=gene body, 6=3’UTR
@@ -464,10 +720,17 @@ glob_methy <- function(X, region, class = sample_matrix$Time){
   global_methylation <- as.data.frame(apply(region_SEM_matrix, 1, mean))
   global_methylation <- cbind(class, global_methylation)
   colnames(global_methylation) <- c("Time", "Global_methylation")
+  diff <- global_methylation %>%
+    dplyr::group_by(Time) %>%
+    dplyr::summarise(avg = mean(Global_methylation))
   ttest <- t.test(data = global_methylation, Global_methylation ~ Time, paired = TRUE, alternative = "two.sided")
   temp <- ttest$estimate
   temp <- as.data.frame(t(temp))
   temp$pvalue <- ttest$p.value
+  temp$Before <- diff[which(diff$Time=="Before"), "avg"]
+  temp$After <- diff[which(diff$Time=="After"), "avg"]
+  temp$ci_low <- ttest$conf.int[1]
+  temp$ci_high <- ttest$conf.int[2]
   return(temp)
 }
 
@@ -489,6 +752,7 @@ https://rdrr.io/cran/CpGassoc/man/CpGassoc-package.html
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 library(CpGassoc)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 # Crude model (2.736211 hr)
 start <- Sys.time()
@@ -497,17 +761,17 @@ Sys.time() - start
 
 DMP_final_output_CpGassoc <- CpGassoc_result$results
 
-# save(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+save(DMP_final_output_CpGassoc, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
 
 # Cell type adjusted model (3.108104 hr)
 start <- Sys.time()
-celltype <- sample_matrix %>% dplyr::select(CD8.naive, CD8pCD28nCD45RAn, PlasmaBlast, CD4T, NK, Mono, Gran)
-CpGassoc_result <- CpGassoc::cpg.assoc(methy_matrix[1:10,], indep = sample_matrix$Time, covariates = celltype, chip.id=sample_matrix$BH.ID, random=TRUE, large.data=FALSE)
+celltype <- sample_matrix %>% dplyr::select(Mono)
+CpGassoc_result <- CpGassoc::cpg.assoc(methy_matrix, indep = sample_matrix$Time, covariates = celltype, chip.id=sample_matrix$BH.ID, random=TRUE, large.data=FALSE)
 Sys.time() - start
 
 DMP_final_output_CpGassoc_celltypes <- CpGassoc_result$results
 
-# save(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+save(DMP_final_output_CpGassoc_celltypes, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
 ```
 
 __Method 2: lmer__
@@ -538,7 +802,7 @@ DMP_final_output_lmer <-
   dplyr::rename(raw_p = "Pr(>|t|)") %>%
   dplyr::mutate(fdr = p.adjust(raw_p, method="BH"))
 
-# save(DMP_final_output_lmer, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_lmer.RData")
+# save(DMP_final_output_lmer, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_lmer.RData")
 ```
 
 Both methods generate same results. CpGassoc is much faster for high-dimensional data.
@@ -548,8 +812,9 @@ __Add mean difference and CI__
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 library(rstatix)
 
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
 
 start <- Sys.time()
 mean_diff <- function(x){
@@ -570,15 +835,15 @@ Sys.time() - start
 DMP_final_output_CpGassoc <- cbind(DMP_final_output_CpGassoc, mean_diff_output)
 DMP_final_output_CpGassoc_celltypes <- cbind(DMP_final_output_CpGassoc_celltypes, mean_diff_output)
 
-# save(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
-# save(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+# save(DMP_final_output_CpGassoc, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+# save(DMP_final_output_CpGassoc_celltypes, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
 ```
 
 __QQ plots__
 
 ```{r , echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
 
 {
   set.seed(1106)
@@ -650,10 +915,10 @@ Question: Significant threshold?
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 # Load annotation file
-EPIC_annotation <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/EPIC/annotationEPIC.csv.gz"), header = T)
+EPIC_annotation <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/EPIC/annotationEPIC.csv.gz"), header = T)
 
 # Crude model
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc.RData")
 DMP_final_output_CpGassoc <- 
   DMP_final_output_CpGassoc %>%
   dplyr::left_join(EPIC_annotation, by = c("CPG.Labels" = "IDREF")) %>%
@@ -664,14 +929,13 @@ DMP_final_output_CpGassoc <-
 DMP_final_output_CpGassoc <- 
   DMP_final_output_CpGassoc %>%
   dplyr::mutate(gene_name = gsub(";.*", "", UCSC_RefGene_Name)) # create a gene name variable that doesn't contain any repeats
-# readr::write_csv(DMP_final_output_CpGassoc, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz", col_names = T)
-# Write a file contains all the significant gene names
-# sig_gene <- crude %>%
+# readr::write_csv(DMP_final_output_CpGassoc, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz", col_names = T)
+# # Write a file contains all the significant gene names
+# sig_gene <- DMP_final_output_CpGassoc %>%
 #   dplyr::filter(P.value<10e-7) %>%
-#   select(gene_name) %>%
-#   filter(gene_name!="") %>%
-#   write.table(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Sig_GeneName_10e-7.txt", sep = "\t", col.names = F, row.names = F, quote = F)
-
+#   dplyr::select(gene_name) %>%
+#   dplyr::filter(gene_name!="") %>%
+#   write.table(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Sig_GeneName_10e-7.txt", sep = "\t", col.names = F, row.names = F, quote = F)
 
 DMP_final_output_CpGassoc %>% # Total number of probes per chromosome
   dplyr::group_by(chr) %>%
@@ -695,22 +959,24 @@ print(paste("Number of significant genes (FDR < 0.05, crude model):",DMP_final_o
 DMP_final_output_CpGassoc %>% # Top 20 CpGs
   dplyr::arrange(P.value) %>%
   head(n=20)
+
+write.csv(DMP_final_output_CpGassoc[which(DMP_final_output_CpGassoc$P.value < 10e-7),], file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/topCpG_10e-7_annotation.csv", row.names = F, col.names = T)
 ```
 
-__"Number of significant CpGs (pvalue < 10e-8, crude model): 11"__
-__"Number of hypermethylated CpGs (pvalue < 10e-8, crude model): 7"__
+__"Number of significant CpGs (pvalue < 10e-8, crude model): 8"__
+__"Number of hypermethylated CpGs (pvalue < 10e-8, crude model): 4"__
 __"Number of hypomethylated CpGs (pvalue < 10e-8, crude model): 4"__
-__"Number of significant genes (pvalue < 10e-8, crude model): 6"__
+__"Number of significant genes (pvalue < 10e-8, crude model): 4"__
 
-__"Number of significant CpGs (pvalue < 10e-7, crude model): 86"__
-__"Number of hypermethylated CpGs (pvalue < 10e-7, crude model): 48"__
-__"Number of hypomethylated CpGs (pvalue < 10e-7, crude model): 38"__
-__"Number of significant genes (pvalue < 10e-7, crude model): 61"__
+__"Number of significant CpGs (pvalue < 10e-7, crude model): 55"__
+__"Number of hypermethylated CpGs (pvalue < 10e-7, crude model): 37"__
+__"Number of hypomethylated CpGs (pvalue < 10e-7, crude model): 18"__
+__"Number of significant genes (pvalue < 10e-7, crude model): 34"__
 
-__"Number of significant CpGs (FDR < 0.05, crude model): 49530"__
-__"Number of hypermethylated CpGs (FDR < 0.05, crude model): 30229"__
-__"Number of hypomethylated CpGs (FDR < 0.05, crude model): 19301"__
-__"Number of significant genes (FDR < 0.05, crude model): 39025"__
+__"Number of significant CpGs (FDR < 0.05, crude model): 26479"__
+__"Number of hypermethylated CpGs (FDR < 0.05, crude model): 16860"__
+__"Number of hypomethylated CpGs (FDR < 0.05, crude model): 9619"__
+__"Number of significant genes (FDR < 0.05, crude model): 20605"__
 
 ### Manhattan plot_crude
 
@@ -721,12 +987,14 @@ __"Number of significant genes (FDR < 0.05, crude model): 39025"__
 #   dplyr::select("CPG.Labels", "chr", "pos", "P.value")
 # colnames(ManhattanPlot) <- c("ID","Chromosome","Position","trait1")
 # 
-# setwd("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/")
+# setwd("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/")
 # CMplot::CMplot(ManhattanPlot,type="p",plot.type="d",bin.size=1e6,chr.den.col=c("darkgreen", "yellow", "red"), file="jpg", memo="",dpi=300, main="illumilla_EPIC",file.output=TRUE,verbose=TRUE,width=9,height=6)
 
 # Generate Manhattan plot
 # https://bernatgel.github.io/karyoploter_tutorial//Tutorial/PlotManhattan/PlotManhattan.html
 # plot positice and negatice CpGs
+DMP_final_output_CpGassoc <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+
 library(karyoploteR)
 DMP_final_output_CpGassoc <- 
   DMP_final_output_CpGassoc %>%
@@ -743,7 +1011,7 @@ selected_GRange_down <- GRanges(seqnames=Rle(paste("chr", down$chr, sep = "")), 
 names(selected_GRange_down) <- down$CPG.Labels
 
 # Export: width 3000, height 1200
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/Manhattan_crude.png", width=3000, height=1200)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/Manhattan_crude.png", width=3000, height=1200)
 kp <- plotKaryotype(plot.type=4, cex=1)
 # kpAddLabels(kp, labels = "-Log10(P-value)", srt=90, pos=3, r0=0.5, r1=1, cex=1.8, label.margin = 0.025)
 
@@ -757,8 +1025,8 @@ kp <- kpPlotManhattan(kp, data=selected_GRange_up, r0=0.5, r1=1, suggestiveline 
   # cpg_label <- c("PLXND1", "PLEKHG4B", "BRSK2", "TMEM114", "CDC34", "LTBP4", "FAM230B") # annotate the rest of probes w/ nearest genes
 }
 kpAxis(kp, ymin=0, ymax=max(-log10(selected_GRange_up$pval)), r0=0.5, cex=3)
-kpText(kp, data = top.up, labels = cpg_label, cex=3, col="red", r0=0.5, r1=1, pos=4, ymax = 7.64) # ymax need to be modified so that it matches the plot
-kpPoints(kp, data = top.up, pch=1, cex=3, col="red", lwd=2, r0=0.5, r1=1, ymax = 7.64)
+# kpText(kp, data = top.up, labels = cpg_label, cex=3, col="red", r0=0.5, r1=1, pos=4, ymax = 7.64) # ymax need to be modified so that it matches the plot
+kpPoints(kp, data = top.up, pch=1, cex=3, col="red", lwd=2, r0=0.5, r1=1, ymax = 8.54)
 
 # kpAddLabels(kp, labels = "-Log10(P-value)", srt=90, pos=3, r0=0, r1=0.5, cex=1.8, label.margin = 0.025)
 kpAxis(kp, ymin=0, ymax=max(-log10(selected_GRange_down$pval)), r0=0.5, r1=0, cex=3)
@@ -770,21 +1038,105 @@ kp <- kpPlotManhattan(kp, data=selected_GRange_down, r0=0.5, r1=0, suggestivelin
   top.down
   cpg_label <- paste(names(top.down), down %>% dplyr::filter(CPG.Labels %in% names(top.down)) %>% dplyr::select(gene_name) %>% as.list() %>% unlist(), sep = "\n")
 }
-kpText(kp, data = top.down, labels = cpg_label, cex=3, col="darkgreen", r0=0.5, r1=0, pos=4, ymax = 7.88)
-kpPoints(kp, data = top.down, pch=1, cex=3, col="darkgreen", lwd=2, r0=0.5, r1=0, ymax = 7.88)
+# kpText(kp, data = top.down, labels = cpg_label, cex=3, col="darkgreen", r0=0.5, r1=0, pos=4, ymax = 7.88)
+kpPoints(kp, data = top.down, pch=1, cex=3, col="darkgreen", lwd=2, r0=0.5, r1=0, ymax = 7.91)
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/SNP-Density.trait1.jpg)
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/Manhattan_crude.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/SNP-Density.trait1.jpg)
+
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/Manhattan_crude.png)
+
+### Box plots for top CpGs
+
+```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+DMP_final_output_CpGassoc <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T) 
+
+sig_cpg <- DMP_final_output_CpGassoc %>%
+  dplyr::filter(P.value < 10e-8) %>%
+  dplyr::pull(CPG.Labels)
+
+# Add sig CpGs to sample_matrix
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+methy_matrix_sig <- data.frame(t(methy_matrix[sig_cpg,]))
+sample_matrix <- cbind(sample_matrix, methy_matrix_sig)
+
+# Run t test and draw plots
+paired_t <- function(input_matrix = sample_matrix, var){
+  temp_stat <- input_matrix %>%
+    dplyr::group_by(Time) %>%
+    dplyr::summarise(mean = mean(.data[[var]])) %>%
+    dplyr::select(mean) %>%
+    c()
+  fm <- as.formula(paste(var, "~ Time"))
+  stat.test <- t.test(data = input_matrix,fm, paired = TRUE, alternative = "two.sided")
+  # stat.test <- t_test(fm, paired = TRUE, detailed = TRUE, ref.group = "Before", data = input_matrix) %>%
+  #   add_significance()
+  temp_stat <- unlist(c(temp_stat, stat.test$estimate, stat.test$conf.int, stat.test$p.value)) # mean by group and two-sided p value from paired t test
+  names(temp_stat) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
+  # Create a box plot
+  Means <- input_matrix %>% group_by(Time) %>% 
+    summarize(Avg = mean(.data[[var]]))
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 2, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+    geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 9) +
+    geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") +
+    theme(plot.margin = unit(c(4,4,4,4), "lines")) +
+    coord_cartesian(clip = "off")
+  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(23,"bold"), font.y = c(23,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 9, fontface = "bold")
+  # Add p-value and significance levels
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
+  
+  return(list(temp_stat, temp_plot))
+}
+
+for (i in sig_cpg) {
+  temp <- paired_t(var = i)
+  assign(i, temp)
+}
+```
+
+```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# Add a volcano plot
+volcano <- DMP_final_output_CpGassoc %>%
+  dplyr::select(CPG.Labels, P.value, mean_diff)
+volcano$group <- ifelse(volcano$P.value<10e-8&volcano$mean_diff>=0,2,
+                        ifelse(volcano$P.value<10e-8&volcano$mean_diff<=0,1,0))
+volcano$size <- ifelse(volcano$group == 0,0,1)
+
+vol_plot <- ggplot2::ggplot(volcano,aes(x=mean_diff,y=-log10(P.value))) +
+  geom_point(aes(colour=cut(group, c(-Inf,0,1,Inf))),show.legend = FALSE,cex=4) +
+  scale_fill_hue(c=20, l=20) +
+  scale_color_manual(values = c("#999999","springgreen3","firebrick1")) +
+  scale_size_continuous(range = c(1,2)) +
+  geom_hline(aes(yintercept = 7),color = "black",size = 0.5,linetype = "dashed") +
+  labs(x="Methy_difference",y="-Log10(P-value)") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme_classic(base_size = 35)+
+  theme(axis.text=element_text(face="bold"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.title = element_text(size=35, face="bold"),
+        axis.title.x = element_text(size=35, face="bold"),
+        axis.title.y = element_text(size=35, face="bold")) +
+  ggrepel::geom_label_repel(data = subset(volcano,volcano$P.value<10e-8), aes(label = CPG.Labels), size = 8)
+```
+
+```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# Paired barplots
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/topCpG_boxplot.png", width=2000, height=2000)
+ggarrange(vol_plot, cg13824097[2][[1]], cg08357990[2][[1]], cg17034181[2][[1]], cg11297013[2][[1]], cg03863838[2][[1]], cg19081470[2][[1]], cg10695761[2][[1]], cg10765567[2][[1]], labels = NA, ncol = 3, nrow = 3, vjust = 1,font.label = list(size = 14, face = "bold"))
+dev.off()
+```
+
 ### Annotation_celltypes
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 # Load annotation file
-EPIC_annotation <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/EPIC/annotationEPIC.csv.gz"), header = T)
+EPIC_annotation <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/EPIC/annotationEPIC.csv.gz"), header = T)
 
 # celltypes model
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_final_output_CpGassoc_celltypes.RData")
 DMP_final_output_CpGassoc_celltypes <- 
   DMP_final_output_CpGassoc_celltypes %>%
   dplyr::left_join(EPIC_annotation, by = c("CPG.Labels" = "IDREF")) %>%
@@ -795,7 +1147,7 @@ DMP_final_output_CpGassoc_celltypes <-
 DMP_final_output_CpGassoc_celltypes <- 
   DMP_final_output_CpGassoc_celltypes %>%
   dplyr::mutate(gene_name = gsub(";.*", "", UCSC_RefGene_Name))
-# readr::write_csv(DMP_final_output_CpGassoc_celltypes, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_celltypes_annotation.csv.gz", col_names = T)
+# readr::write_csv(DMP_final_output_CpGassoc_celltypes, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_celltypes_annotation.csv.gz", col_names = T)
 
 DMP_final_output_CpGassoc_celltypes %>% # Total number of probes per chromosome
   dplyr::group_by(chr) %>%
@@ -819,22 +1171,24 @@ print(paste("Number of significant genes (FDR < 0.05, celltypes model):",DMP_fin
 DMP_final_output_CpGassoc_celltypes %>% # Top 20 CpGs
   dplyr::arrange(P.value) %>%
   head(n=20)
+
+write.csv(DMP_final_output_CpGassoc_celltypes[which(DMP_final_output_CpGassoc_celltypes$P.value < 10e-7),], file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/topCpG_10e-7_CellType_annotation.csv", row.names = F, col.names = T)
 ```
 
-__"Number of significant CpGs (pvalue < 10e-8, celltypes model): 0"__
-__"Number of hypermethylated CpGs (pvalue < 10e-8, celltypes model): 0"__
+__"Number of significant CpGs (pvalue < 10e-8, celltypes model): 2"__
+__"Number of hypermethylated CpGs (pvalue < 10e-8, celltypes model): 2"__
 __"Number of hypomethylated CpGs (pvalue < 10e-8, celltypes model): 0"__
 __"Number of significant genes (pvalue < 10e-8, celltypes model): 0"__
 
-__"Number of significant CpGs (pvalue < 10e-7, celltypes model): 2"__
-__"Number of hypermethylated CpGs (pvalue < 10e-7, celltypes model): 2"__
-__"Number of hypomethylated CpGs (pvalue < 10e-7, celltypes model): 0"__
-__"Number of significant genes (pvalue < 10e-7, celltypes model): 0"__
+__"Number of significant CpGs (pvalue < 10e-7, celltypes model): 25"__
+__"Number of hypermethylated CpGs (pvalue < 10e-7, celltypes model): 20"__
+__"Number of hypomethylated CpGs (pvalue < 10e-7, celltypes model): 5"__
+__"Number of significant genes (pvalue < 10e-7, celltypes model): 17"__
 
-__"Number of significant CpGs (FDR < 0.05, celltypes model): 0"__
-__"Number of hypermethylated CpGs (FDR < 0.05, celltypes model): 0"__
-__"Number of hypomethylated CpGs (FDR < 0.05, celltypes model): 0"__
-__"Number of significant genes (FDR < 0.05, celltypes model): 0"__
+__"Number of significant CpGs (FDR < 0.05, celltypes model): 17422"__
+__"Number of hypermethylated CpGs (FDR < 0.05, celltypes model): 10275"__
+__"Number of hypomethylated CpGs (FDR < 0.05, celltypes model): 7147"__
+__"Number of significant genes (FDR < 0.05, celltypes model): 13622"__
 
 ### Manhattan plot_celltypes
 
@@ -842,52 +1196,53 @@ __"Number of significant genes (FDR < 0.05, celltypes model): 0"__
 # Generate Manhattan plot
 # https://bernatgel.github.io/karyoploter_tutorial//Tutorial/PlotManhattan/PlotManhattan.html
 # plot positice and negatice CpGs
+DMP_final_output_CpGassoc_celltypes <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_celltypes_annotation.csv.gz"), header = T)
 library(karyoploteR)
 DMP_final_output_CpGassoc_celltypes <- 
   DMP_final_output_CpGassoc_celltypes %>%
   dplyr::mutate(chr = ifelse(chr == 23, "X", ifelse(chr == 24, "Y", chr)))
 
 up <- DMP_final_output_CpGassoc_celltypes[which(DMP_final_output_CpGassoc_celltypes$mean_diff>=0),]
-high_up <- up$P.value < 5E-4
+high_up <- up$P.value < 10E-7
 selected_GRange_up <- GRanges(seqnames=Rle(paste("chr", up$chr, sep = "")), ranges=IRanges(start=up$pos, end=up$pos), strand=Rle(rep("*",nrow(up))), betas=up$mean_diff, pval=up$P.value)
 names(selected_GRange_up) <- up$CPG.Labels
 
 down <- DMP_final_output_CpGassoc_celltypes[which(DMP_final_output_CpGassoc_celltypes$mean_diff<0),]
-high_down <- down$P.value < 5E-4
+high_down <- down$P.value < 10E-7
 selected_GRange_down <- GRanges(seqnames=Rle(paste("chr", down$chr, sep = "")), ranges=IRanges(start=down$pos, end=down$pos), strand=Rle(rep("*",nrow(down))), betas=down$mean_diff, pval=down$P.value)
 names(selected_GRange_down) <- down$CPG.Labels
 
 # Export: width 3000, height 1200
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/Manhattan_celltypes.png", width=3000, height=1200)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/Manhattan_celltypes.png", width=3000, height=1200)
 kp <- plotKaryotype(plot.type=4, cex=1)
 
-kp <- kpPlotManhattan(kp, data=selected_GRange_up, r0=0.5, r1=1, suggestiveline = -log10(5E-4), suggestive.col="orange", suggestive.lwd = 3, genomewideline = 0, points.cex = 1.5, highlight = high_up, highlight.col = "#c70039")
+kp <- kpPlotManhattan(kp, data=selected_GRange_up, r0=0.5, r1=1, suggestiveline = -log10(10E-7), suggestive.col="orange", suggestive.lwd = 3, genomewideline = 0, points.cex = 1.5, highlight = high_up, highlight.col = "#c70039")
 { # add top CpGs annotation
   snps <- kp$latest.plot$computed.values$data
-  suggestive.thr <- 6 # 10e-8
+  suggestive.thr <- 7 # 10e-8
   top.up <- snps[snps$y>suggestive.thr]
   top.up
   cpg_label <- paste(names(top.up), up %>% dplyr::filter(CPG.Labels %in% names(top.up)) %>% dplyr::select(gene_name) %>% as.list() %>% unlist(), sep = "\n")
 }
 kpAxis(kp, ymin=0, ymax=max(-log10(selected_GRange_up$pval)), r0=0.5, cex=3)
-kpText(kp, data = top.up, labels = cpg_label, cex=3, col="red", r0=0.5, r1=1, pos=4, ymax = 6.19)
-kpPoints(kp, data = top.up, pch=1, cex=3, col="red", lwd=2, r0=0.5, r1=1, ymax = 6.19)
+# kpText(kp, data = top.up, labels = cpg_label, cex=3, col="red", r0=0.5, r1=1, pos=4, ymax = 7.07)
+kpPoints(kp, data = top.up, pch=1, cex=3, col="red", lwd=2, r0=0.5, r1=1, ymax = 7.36)
 
-kp <- kpPlotManhattan(kp, data=selected_GRange_down, r0=0.5, r1=0, suggestiveline = -log10(5E-4), suggestive.col="orange", suggestive.lwd = 3, genomewideline = 0, points.cex = 1.5, highlight = high_down, highlight.col = "#00b300", points.col = "2blues")
+kp <- kpPlotManhattan(kp, data=selected_GRange_down, r0=0.5, r1=0, suggestiveline = -log10(10E-7), suggestive.col="orange", suggestive.lwd = 3, genomewideline = 0, points.cex = 1.5, highlight = high_down, highlight.col = "#00b300", points.col = "2blues")
 { # add top CpGs annotation
   snps <- kp$latest.plot$computed.values$data
-  suggestive.thr <- 6 # 10e-8
+  suggestive.thr <- 7 # 10e-8
   top.down <- snps[snps$y>suggestive.thr]
   top.down
   cpg_label <- paste(names(top.down), down %>% dplyr::filter(CPG.Labels %in% names(top.down)) %>% dplyr::select(gene_name) %>% as.list() %>% unlist(), sep = "\n")
 }
 kpAxis(kp, ymin=0, ymax=max(-log10(selected_GRange_down$pval)), r0=0.5, r1=0, cex=3)
-# kpText(kp, data = top.down, labels = cpg_label, cex=2, col="darkgreen", r0=0.5, r1=0, pos=4, ymax = 7.88)
-# kpPoints(kp, data = top.down, pch=1, cex=2, col="darkgreen", lwd=2, r0=0.5, r1=0, ymax = 7.88)
+# kpText(kp, data = top.down, labels = cpg_label, cex=2, col="darkgreen", r0=0.5, r1=0, pos=4, ymax = 7.07)
+kpPoints(kp, data = top.down, pch=1, cex=2, col="darkgreen", lwd=2, r0=0.5, r1=0, ymax = 6.53)
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/Manhattan_celltypes.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/Manhattan_celltypes.png)
 
 ## Functional annotation_top1000cpgs
 
@@ -901,8 +1256,8 @@ https://www.datanovia.com/en/blog/venn-diagram-with-r-or-rstudio-a-million-ways/
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-crude <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
-celltypes <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_celltypes_annotation.csv.gz"), header = T)
+crude <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+celltypes <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_celltypes_annotation.csv.gz"), header = T)
 
 # crude
 crude_pos <- 
@@ -915,7 +1270,7 @@ crude_neg <-
   dplyr::filter(mean_diff < 0) %>%
   dplyr::arrange(P.value) %>%
   head(n=500) # FDR ~ 0.01
-# top500_pos <- crude_pos; top500_neg <- crude_neg; save(top500_pos, top500_neg, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+top500_pos <- crude_pos; top500_neg <- crude_neg; save(top500_pos, top500_neg, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 # celltypes
 celltypes_pos <- 
@@ -930,18 +1285,57 @@ celltypes_neg <-
   head(n=500) # FDR ~ 0.13
 
 # VennDiagram
+library(tidyverse)
+library(hrbrthemes)
+library(VennDiagram)
+
+# Make the plot
+venn.diagram(
+  x = list(
+    crude_pos$CPG.Labels,
+    celltypes_pos$CPG.Labels
+    ),
+  category.names = c("Crude model_pos" , "Cell types-adjusted_pos"),
+  filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/crudeXcell_pos_venn.png',
+  output = TRUE ,
+          imagetype="png" ,
+          # height = 480 ,
+          # width = 480 ,
+          resolution = 300,
+          compression = "lzw",
+          lwd = 3,
+          # col=c("#440154ff", '#21908dff'),
+          fill = c("#56B4E9", "#009E73"),
+          cex = 3,
+          fontfamily = "sans",
+          cat.cex = 2,
+          cat.default.pos = "outer",
+          cat.pos = c(-22, 22),
+          cat.dist = c(0.055, 0.055),
+          cat.fontfamily = "sans",
+          cat.col = c("#56B4E9", "#009E73"),
+          # rotation = 1
+        )
+```
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+overlap_pos <- 
+  crude_pos %>%
+  dplyr::filter(CPG.Labels %in% celltypes_pos$CPG.Labels)
+head(overlap_pos, n=20) # Top CpGs (p=10E-8) were overlapped
+```
+
+```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
 # library(tidyverse)
 # library(hrbrthemes)
 # library(VennDiagram)
- 
-#Make the plot
 # venn.diagram(
 #   x = list(
-#     crude_pos$CPG.Labels,
-#     celltypes_pos$CPG.Labels
+#     crude_neg$CPG.Labels,
+#     celltypes_neg$CPG.Labels
 #     ),
-#   category.names = c("Crude model_pos" , "Cell types-adjusted_pos"),
-#   filename = 'D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/crudeXcell_pos_venn.png',
+#   category.names = c("Crude model_neg" , "Cell types-adjusted_neg"),
+#   filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/crudeXcell_neg_venn.png',
 #   output = TRUE ,
 #           imagetype="png" ,
 #           # height = 480 ,
@@ -963,43 +1357,7 @@ celltypes_neg <-
 #         )
 ```
 
-```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
-overlap_pos <- 
-  crude_pos %>%
-  dplyr::filter(CPG.Labels %in% celltypes_pos$CPG.Labels)
-head(overlap_pos, n=20) # Top CpGs (p=10E-8) were overlapped
-```
-
-```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
-# venn.diagram(
-#   x = list(
-#     crude_neg$CPG.Labels,
-#     celltypes_neg$CPG.Labels
-#     ),
-#   category.names = c("Crude model_neg" , "Cell types-adjusted_neg"),
-#   filename = 'D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/crudeXcell_neg_venn.png',
-#   output = TRUE ,
-#           imagetype="png" ,
-#           # height = 480 , 
-#           # width = 480 , 
-#           resolution = 300,
-#           compression = "lzw",
-#           lwd = 3,
-#           # col=c("#440154ff", '#21908dff'),
-#           fill = c("#56B4E9", "#009E73"),
-#           cex = 3,
-#           fontfamily = "sans",
-#           cat.cex = 2,
-#           cat.default.pos = "outer",
-#           cat.pos = c(-22, 22),
-#           cat.dist = c(0.055, 0.055),
-#           cat.fontfamily = "sans",
-#           cat.col = c("#56B4E9", "#009E73"),
-#           # rotation = 1
-#         )
-```
-
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/crudeXcell_venn.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/crudeXcell_venn.png)
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 overlap_neg <- 
@@ -1014,18 +1372,18 @@ First step, harmonize all the interesting gene lists...
 
 ```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
 rm(list = ls())
-horvath <- read.xlsx(file = "D:/Dropbox/PEG/PD_Pest_MultiOmics/SEM_DNAmAge/Clock_CpG/Available_Clock_CpG.xlsx", sheetName = "HorvathClock", header = T)
-readr::write_csv(horvath, file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHorvath_353CpGs.csv.gz", col_names = T)
+horvath <- read.xlsx(file = "/Users/qiyan/Dropbox/PEG/PD_Pest_MultiOmics/SEM_DNAmAge/Clock_CpG/Available_Clock_CpG.xlsx", sheetName = "HorvathClock", header = T)
+readr::write_csv(horvath, file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHorvath_353CpGs.csv.gz", col_names = T)
 
-pheno <- read.xlsx(file = "D:/Dropbox/PEG/PD_Pest_MultiOmics/SEM_DNAmAge/Clock_CpG/Available_Clock_CpG.xlsx", sheetName = "PhenoClock", header = T)
-readr::write_csv(pheno, file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmPheno_513CpGs.csv.gz", col_names = T)
+pheno <- read.xlsx(file = "/Users/qiyan/Dropbox/PEG/PD_Pest_MultiOmics/SEM_DNAmAge/Clock_CpG/Available_Clock_CpG.xlsx", sheetName = "PhenoClock", header = T)
+readr::write_csv(pheno, file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmPheno_513CpGs.csv.gz", col_names = T)
 
-hannum <- read.xlsx(file = "D:/Dropbox/PEG/PD_Pest_MultiOmics/SEM_DNAmAge/Clock_CpG/Available_Clock_CpG.xlsx", sheetName = "HannumClock", header = T)
-readr::write_csv(hannum, file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHannum_71CpGs.csv.gz", col_names = T)
+hannum <- read.xlsx(file = "/Users/qiyan/Dropbox/PEG/PD_Pest_MultiOmics/SEM_DNAmAge/Clock_CpG/Available_Clock_CpG.xlsx", sheetName = "HannumClock", header = T)
+readr::write_csv(hannum, file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHannum_71CpGs.csv.gz", col_names = T)
 
-grim <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmGrimAge_1030CpGs.csv.gz"), header = T)
+grim <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmGrimAge_1030CpGs.csv.gz"), header = T)
 grim <- grim %>% dplyr::rename(CpG = "Variable")
-readr::write_csv(grim, file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmGrimAge_1030CpGs.csv.gz", col_names = T)
+readr::write_csv(grim, file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmGrimAge_1030CpGs.csv.gz", col_names = T)
 ```
 
 __Intersect w/ DNAm clocks__
@@ -1037,11 +1395,11 @@ Question: for the overlapping w/ DNAm clocks, should I use CpGs or genes?
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
 # Load all DNAm clocks and top 500 CpGs
-grim <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmGrimAge_1030CpGs.csv.gz"), header = T)
-hannum <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHannum_71CpGs.csv.gz"), header = T)
-pheno <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmPheno_513CpGs.csv.gz"), header = T)
-horvath <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHorvath_353CpGs.csv.gz"), header = T)
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+grim <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmGrimAge_1030CpGs.csv.gz"), header = T)
+hannum <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHannum_71CpGs.csv.gz"), header = T)
+pheno <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmPheno_513CpGs.csv.gz"), header = T)
+horvath <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/DNAm_clocks/DNAmHorvath_353CpGs.csv.gz"), header = T)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 # Top 500 hypermethylated CpGs
 Reduce(intersect, list(top500_pos$CPG.Labels, horvath$CpG))
@@ -1069,18 +1427,18 @@ Question: Which tissue should I use? Right now I used all.
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 {
-  maxlifespan_pos <- read.csv(file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, EWAS max lifspan.csv", header = T) %>%
+  maxlifespan_pos <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, EWAS max lifspan.csv", header = T) %>%
     dplyr::filter(group == "positive") %>%
     dplyr::filter(Tissue == "ALL") # Top 500 CpGs related to max lifespan
-  maxlifespan_neg <- read.csv(file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, EWAS max lifspan.csv", header = T) %>%
+  maxlifespan_neg <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, EWAS max lifspan.csv", header = T) %>%
     dplyr::filter(group == "negative") %>%
     dplyr::filter(Tissue == "ALL") # Top 500 CpGs related to max lifespan
-  maxlifespan_pos_AdjPhylo <- read.csv(file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, Phylogenetic EWAS of maximum lifespan V2.csv", header = T) %>%
+  maxlifespan_pos_AdjPhylo <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, Phylogenetic EWAS of maximum lifespan V2.csv", header = T) %>%
     dplyr::filter(group == "positive") %>%
     dplyr::filter(Tissue == "Phylo_ALL") # Top 500 (?) CpGs related to max lifespan, adjust for phylogenetic relationship
-  maxlifespan_neg_AdjPhylo <- read.csv(file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, Phylogenetic EWAS of maximum lifespan V2.csv", header = T) %>%
+  maxlifespan_neg_AdjPhylo <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top hits, Phylogenetic EWAS of maximum lifespan V2.csv", header = T) %>%
     dplyr::filter(group == "negative") %>%
     dplyr::filter(Tissue == "Phylo_ALL") # Top 500 (?) CpGs related to max lifespan, adjust for phylogenetic relationship
 }
@@ -1110,7 +1468,7 @@ top500_neg %>% dplyr::filter(gene_name %in% c("MAML2", "GRWD1", "APPBP2", "BHLHE
 #     maxlifespan_pos_AdjPhylo$SYMBOL[which(!is.na(maxlifespan_pos_AdjPhylo$SYMBOL))]
 #     ),
 #   category.names = c("Exosome" , "Lifespan", "Lifespan\n(AdjPhylo)"),
-#   filename = 'D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/lifespan_pos_venn.png',
+#   filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/lifespan_pos_venn.png',
 #   output = TRUE ,
 #           imagetype="png" ,
 #           # height = 480 ,
@@ -1137,7 +1495,7 @@ top500_neg %>% dplyr::filter(gene_name %in% c("MAML2", "GRWD1", "APPBP2", "BHLHE
 #     maxlifespan_neg_AdjPhylo$SYMBOL[which(!is.na(maxlifespan_neg_AdjPhylo$SYMBOL))]
 #     ),
 #   category.names = c("Exosome" , "Lifespan", "Lifespan\n(AdjPhylo)"),
-#   filename = 'D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/lifespan_neg_venn.png',
+#   filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/lifespan_neg_venn.png',
 #   output = TRUE ,
 #           imagetype="png" ,
 #           # height = 480 ,
@@ -1159,7 +1517,8 @@ top500_neg %>% dplyr::filter(gene_name %in% c("MAML2", "GRWD1", "APPBP2", "BHLHE
 #         )
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/lifespan_venn.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/lifespan_venn.png)
+
 __Intersect w/ age EWAS__
 
 Overlap with top 1000 age-related genes
@@ -1171,12 +1530,12 @@ Question: direction?
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 {
-  age_pos <- read.csv(file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top1000PosNegCpGs_EWASofAge_Ake.csv", header = T) %>%
+  age_pos <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top1000PosNegCpGs_EWASofAge_Ake.csv", header = T) %>%
     dplyr::filter(class == "pos") %>%
     dplyr::filter(tissue == "All") # Top 1000 CpGs related to age
-  age_neg <- read.csv(file = "D:/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top1000PosNegCpGs_EWASofAge_Ake.csv", header = T) %>%
+  age_neg <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Annotation_files/Epigenomics/Important_genes/Aging_EWAS_HorvathLab/Top1000PosNegCpGs_EWASofAge_Ake.csv", header = T) %>%
     dplyr::filter(class == "neg") %>%
     dplyr::filter(tissue == "All") # Top 1000 CpGs related to age
 }
@@ -1199,7 +1558,7 @@ top500_neg %>% dplyr::filter(gene_name %in% c("HSPA2", "IGF2BP1", "DLL4", "VSX2"
 #     age_neg$Gene[which(!is.na(age_neg$Gene))]
 #     ),
 #   category.names = c("Exosome", "Age"),
-#   filename = 'D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_pos_venn.png',
+#   filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_pos_venn.png',
 #   output = TRUE ,
 #           imagetype="png" ,
 #           # height = 480 ,
@@ -1225,7 +1584,7 @@ top500_neg %>% dplyr::filter(gene_name %in% c("HSPA2", "IGF2BP1", "DLL4", "VSX2"
 #     age_pos$Gene[which(!is.na(age_pos$Gene))]
 #     ),
 #   category.names = c("Exosome", "Age"),
-#   filename = 'D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_neg_venn.png',
+#   filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_neg_venn.png',
 #   output = TRUE ,
 #           imagetype="png" ,
 #           # height = 480 ,
@@ -1247,13 +1606,94 @@ top500_neg %>% dplyr::filter(gene_name %in% c("HSPA2", "IGF2BP1", "DLL4", "VSX2"
 #         )
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_venn.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_venn.png)
+
+__Intersect w/ GenAge__
+
+Overlap with GenAge
+
+For age-related CpGs:
+negative genes vs. positive age-related genes
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+rm(list = ls())
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+GenAge <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Aging_Gene_local/Reference_and_SummaryStatistics/Reference_Database/634_GenAge_HS_Age.csv.gz"))
+
+# Top 500 hypermethylated CpGs vs. GeneAge
+Reduce(intersect, list(top500_pos$gene_name, GenAge$Gene.Symbol)) # RPA1, SERPINE1, HSPA9, FGFR1, TRPV1
+
+top500_pos %>% dplyr::filter(gene_name %in% c("RPA1", "SERPINE1", "HSPA9", "FGFR1", "TRPV1"))
+
+# Top 500 hypomethylated CpGs vs. positive genes
+Reduce(intersect, list(top500_neg$gene_name, GenAge$Gene.Symbol)) # MAPT, XRCC6, PML, IGF1R, XRCC5, GSK3B
+
+top500_neg %>% dplyr::filter(gene_name %in% c("MAPT", "XRCC6", "PML", "IGF1R", "XRCC5", "GSK3B"))
+```
+
+```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+venn.diagram(
+  x = list(
+    top500_pos$gene_name[which(top500_pos$gene_name != "")],
+    GenAge$Gene.Symbol[which(!is.na(GenAge$Gene.Symbol))]
+    ),
+  category.names = c("Exosome", "Age"),
+  filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GenAge_pos_venn.png',
+  output = TRUE ,
+          imagetype="png" ,
+          # height = 480 ,
+          # width = 480 ,
+          resolution = 300,
+          compression = "lzw",
+          lwd = 3,
+          # col=c("#440154ff", '#21908dff'),
+          fill = c("#56B4E9", "#009E73"),
+          cex = 3,
+          fontfamily = "sans",
+          cat.cex = 2,
+          cat.default.pos = "outer",
+          cat.pos = c(-22, 22),
+          cat.dist = c(0.055, 0.055),
+          cat.fontfamily = "sans",
+          cat.col = c("#56B4E9", "#009E73"),
+          # rotation = 1
+        )
+venn.diagram(
+  x = list(
+    top500_neg$gene_name[which(top500_neg$gene_name != "")],
+    GenAge$Gene.Symbol[which(!is.na(GenAge$Gene.Symbol))]
+    ),
+  category.names = c("Exosome", "Age"),
+  filename = '/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GenAge_neg_venn.png',
+  output = TRUE ,
+          imagetype="png" ,
+          # height = 480 ,
+          # width = 480 ,
+          resolution = 300,
+          compression = "lzw",
+          lwd = 3,
+          # col=c("#440154ff", '#21908dff'),
+          fill = c("#56B4E9", "#009E73"),
+          cex = 3,
+          fontfamily = "sans",
+          cat.cex = 2,
+          cat.default.pos = "outer",
+          cat.pos = c(-22, 22),
+          cat.dist = c(0.055, 0.055),
+          cat.fontfamily = "sans",
+          cat.col = c("#56B4E9", "#009E73"),
+          # rotation = 1
+        )
+```
+
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/age_venn.png)
+
 ### CpG location relative to CpG islands
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-crude <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+crude <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 {
   crude$Relation_to_Island[which(crude$Relation_to_Island == "S_Shelf")] <- "Shelf"
@@ -1324,8 +1764,8 @@ Question: According to EPIC array manifest, missings were considered as intergen
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-crude <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+crude <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 {
   crude <- crude %>%
@@ -1360,26 +1800,26 @@ top <- ggplot(relation_TSS[which(relation_TSS$type!="Background"),],
               aes(fill=type, y=count, x=gene_group)) + geom_bar(position="stack", stat="identity") + xlab("") + ylab("Number of CpGs")
 top <- top + 
   coord_flip() + 
-  theme_classic() +
-  theme(axis.text.x = element_text(face = "bold", size = 13, angle = 45),
-        axis.text.y = element_text(face = "bold", size = 11),
+  theme_classic(base_size = 40) +
+  theme(axis.text.x = element_text(face = "bold", size = 35, angle = 45),
+        axis.text.y = element_text(face = "bold", size = 35),
         legend.position = "none")
 bg <- ggplot(relation_TSS[which(relation_TSS$type=="Background"),], aes(y=count, x=gene_group)) + geom_bar(position="stack", stat="identity") + xlab("") + ylab("Number of CpGs")
 bg <- bg + 
   coord_flip() + 
-  theme_classic() +
+  theme_classic(base_size = 40) +
   scale_fill_manual(values="#999999") +
-  theme(axis.text.x = element_text(face = "bold", size = 13, angle = 45),
-        axis.text.y = element_text(face = "bold", size = 11),
+  theme(axis.text.x = element_text(face = "bold", size = 35, angle = 45),
+        axis.text.y = element_text(face = "bold", size = 35),
         legend.position = "none")
 
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/TSS_barplot.png", width=1200, height=600)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/TSS_barplot.png", width=1800, height=900)
 ggarrange(top, bg, labels = c("Top CpGs", "Background"),
           ncol = 2, nrow = 1, vjust = -1, font.label = list(size = 14, face = "bold"))
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/TSS_barplot.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/TSS_barplot.png)
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 # calculaction
@@ -1437,8 +1877,8 @@ Can reduce GO terms using rrvgo package
 rm(list = ls())
 
 library(missMethyl)
-crude <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+crude <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 # generate input file
 background <- crude %>%
@@ -1451,40 +1891,62 @@ sigCpGs_neg <- top500_neg %>%
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 
 # Hyper
-gst <- gometh(sig.cpg=sigCpGs_pos, all.cpg=background, collection="GO", array.type = "EPIC", plot.bias=F, sig.genes = T)
-GO_pos <- topGSA(gst, n=50)
-write.csv(GO_pos, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_GO_pos.csv", col.names = T, row.names = F)
+gst <- missMethyl::gometh(sig.cpg=sigCpGs_pos, all.cpg=NULL, collection="GO", array.type = "EPIC", plot.bias=F, sig.genes = T)
+GO_pos <- topGSA(gst, n=500)
+{
+  # load the GO library
+  library(GO.db)
+  
+  # extract a named vector of all terms
+  goterms <- Term(GOTERM)
+  goterms <- data.frame(GO_id=names(goterms), TERM=goterms, row.names=NULL)
+  gst <- gst %>%
+    dplyr::left_join(goterms, by = "TERM")
+}
+write.table(gst, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_GO_pos.txt", col.names = T, row.names = F, quote = F, sep = "\t")
 
 # Hypo
-gst <- gometh(sig.cpg=sigCpGs_neg, all.cpg=background, collection="GO", array.type = "EPIC", plot.bias=F, sig.genes = T)
-GO_neg <- topGSA(gst, n=50)
-write.csv(GO_neg, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_GO_neg.csv", col.names = T, row.names = F)
+gst <- gometh(sig.cpg=sigCpGs_neg, all.cpg=NULL, collection="GO", array.type = "EPIC", plot.bias=F, sig.genes = T)
+GO_neg <- topGSA(gst, n=500)
+{
+  # load the GO library
+  library(GO.db)
+  
+  # extract a named vector of all terms
+  goterms <- Term(GOTERM)
+  goterms <- data.frame(GO_id=names(goterms), TERM=goterms, row.names=NULL)
+  gst <- gst %>%
+    dplyr::left_join(goterms, by = "TERM")
+}
+write.table(gst, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_GO_neg.txt", col.names = T, row.names = F, quote = F, sep = "\t")
 
 # Draw plot
-go_long <- read.xlsx(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_summary.xlsx", sheetName = "go_long") %>%
-  dplyr::mutate(Direction = factor(Direction, levels = c("Hyper", "Hypo")))
+go_long <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_summary.xlsx", sheetName = "go_Summary") %>%
+  dplyr::mutate(Direction = factor(Direction, levels = c("Hypermethylation", "Hypomethylation")))
 order <- go_long$Pathways
 go_long <- go_long %>%
   dplyr::mutate(Pathways = factor(Pathways, levels = rev(order)))
 
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/MissMethyl_GO.png", width=1200, height=900)
-ggplot(go_long, aes_string(x="Ratio", y="Pathways", size="Ratio", color="p.value.log10")) + 
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/MissMethyl_GO.png", width=2200, height=1200)
+ggplot(go_long, aes_string(x="p.value.log10", y="Pathways", size="Ratio", color="p.value.log10")) + 
   geom_point() +
   scale_color_continuous(low="blue", high="red", name = "-Log10(P-value)", guide=guide_colorbar(reverse=F)) +
-  ylab(NULL) + ggtitle("") + DOSE::theme_dose(24) + scale_size(range=c(6, 16)) +
-  facet_grid(. ~ Direction)
+  ylab(NULL) + ggtitle("") + DOSE::theme_dose(40) + scale_size(range=c(6, 16)) +
+  facet_grid(. ~ Direction) +
+  theme(strip.text.x = element_text(size = 40, face = "bold"))
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/MissMethyl_GO.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/MissMethyl_GO.png)
+
 __KEGG enrichment__
 
 ```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 rm(list = ls())
 
 library(missMethyl)
-crude <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+crude <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 # generate input file
 background <- crude %>%
@@ -1499,40 +1961,44 @@ library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
 # Hyper
 gst <- gometh(sig.cpg=sigCpGs_pos, all.cpg=background, collection="KEGG", array.type = "EPIC", plot.bias=F, sig.genes = T)
 KEGG_pos <- topGSA(gst, n=50)
-write.csv(KEGG_pos, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_KEGG_pos.csv", col.names = T, row.names = F)
+write.table(gst, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_KEGG_pos.txt", col.names = T, row.names = F, quote = F, sep = "\t")
 
 # Hypo
 gst <- gometh(sig.cpg=sigCpGs_neg, all.cpg=background, collection="KEGG", array.type = "EPIC", plot.bias=F, sig.genes = T)
 KEGG_neg <- topGSA(gst, n=50)
-write.csv(KEGG_neg, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_KEGG_neg.csv", col.names = T, row.names = F)
+write.table(gst, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_KEGG_neg.txt", col.names = T, row.names = F, quote = F, sep = "\t")
 
 # Draw plot
-kegg_long <- read.xlsx(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_summary.xlsx", sheetName = "kegg_long") %>%
-  dplyr::mutate(Direction = factor(Direction, levels = c("Hyper", "Hypo")))
-order <- read.xlsx(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_summary.xlsx", sheetName = "kegg_order") %>% pull(order)
+kegg_long <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/MissMethyl_summary.xlsx", sheetName = "kegg_Summary") %>%
+  dplyr::mutate(Direction = factor(Direction, levels = c("Hypermethylation", "Hypomethylation")))
+order <- kegg_long$Pathways
 kegg_long <- kegg_long %>%
   dplyr::mutate(Pathways = factor(Pathways, levels = rev(order)))
 
-png(file="D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/MissMethyl_KEGG.png", width=1200, height=900)
-ggplot(kegg_long, aes_string(x="Ratio", y="Pathways", size="Ratio", color="p.value.log10")) + 
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/MissMethyl_KEGG.png", width=2000, height=1200)
+ggplot(kegg_long, aes_string(x="p.value.log10", y="Pathways", size="Ratio", color="p.value.log10")) + 
   geom_point() +
   scale_color_continuous(low="blue", high="red", name = "-Log10(P-value)", guide=guide_colorbar(reverse=F)) +
-  ylab(NULL) + ggtitle("") + DOSE::theme_dose(24) + scale_size(range=c(6, 16)) +
-  facet_grid(. ~ Direction)
+  ylab(NULL) + ggtitle("") + DOSE::theme_dose(40) + scale_size(range=c(12, 24)) +
+  facet_grid(. ~ Direction) +
+  theme(strip.text.x = element_text(size = 40, face = "bold"))
 dev.off()
 ```
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/MissMethyl_KEGG.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/MissMethyl_KEGG.png)
 
 ### GREAT enrichment
 
 Question: Where can I find start and end info for each probe?
 
+From AKe: I attach the R codes for rGREAT that I used for Huntington’s disease project (450k/Epic). Both methods (Binomial analysis without specifying background or genomic region based  hypergeometric test) can apply to the Illumina array.  Here I used binomial analysis. If you use genomic region based hypergeometric analysis then you can use NumBgGenes to filter out the annotation sets with extreme large or small number of genes. The variable NumBgGenes is the total number of genes in a test gene set according to our background. In the R code for summarizing the results, I group similar ontologies into macro categories. For the human study, the mouse phenotypes are relatively unimportant ("MGI Expression: Detected", "Mouse Phenotype" ).
+I wrote the template based on my HD project. I just thought that I used the overlap between 450k and EPIC as a background. In the exome project, there is no need to use the overlap CpGs. You can simply use the 850k CpGs as the background for genomic region hypergeometric analysis.
+
 ```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 rm(list = ls())
 library(rGREAT)
-crude <- read.csv(gzfile("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+crude <- read.csv(gzfile("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/DMP_CpGassoc_annotation.csv.gz"), header = T)
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 # setwd('/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Aging_Gene_local/Enrichment_Analysis_Results/PermutationTest_GREAT/Output')
 
@@ -1541,7 +2007,7 @@ background <- crude %>%
   dplyr::mutate(chr = ifelse(chr == 23, "X", ifelse(chr == 24, "Y", chr))) %>%
   dplyr::mutate(chr = paste("chr", chr, sep = "")) %>%
   dplyr::mutate(start = pos) %>%  # Don't have start and end info, therefore use pos for now
-  dplyr::mutate(end = pos) %>%
+  dplyr::mutate(end = pos+1) %>%
   dplyr::rename(CHR = "chr") %>%
   dplyr::rename(CGid = "CPG.Labels") %>%
   dplyr::select(CHR,start,end,CGid)
@@ -1549,7 +2015,7 @@ target_pos <- top500_pos %>%
   dplyr::mutate(chr = ifelse(chr == 23, "X", ifelse(chr == 24, "Y", chr))) %>%
   dplyr::mutate(chr = paste("chr", chr, sep = "")) %>%
   dplyr::mutate(start = pos) %>%  # Don't have start and end info, therefore use pos for now
-  dplyr::mutate(end = pos) %>%
+  dplyr::mutate(end = pos+1) %>%
   dplyr::rename(CHR = "chr") %>%
   dplyr::rename(CGid = "CPG.Labels") %>%
   dplyr::select(CHR,start,end,CGid)
@@ -1557,7 +2023,7 @@ target_neg <- top500_neg %>%
   dplyr::mutate(chr = ifelse(chr == 23, "X", ifelse(chr == 24, "Y", chr))) %>%
   dplyr::mutate(chr = paste("chr", chr, sep = "")) %>%
   dplyr::mutate(start = pos) %>%  # Don't have start and end info, therefore use pos for now
-  dplyr::mutate(end = pos) %>%
+  dplyr::mutate(end = pos+1) %>%
   dplyr::rename(CHR = "chr") %>%
   dplyr::rename(CGid = "CPG.Labels") %>%
   dplyr::select(CHR,start,end,CGid)
@@ -1569,7 +2035,7 @@ table(background$CHR,useNA='ifany')
 
 extend=c(50,1000)
 # 50kb extension of gene regulatory region
-job = submitGreatJob(gr = target_neg, bg = background,
+job = submitGreatJob(gr = target_pos, #bg = background,
                      species               = "hg19",
                      includeCuratedRegDoms = TRUE,
                      rule                  = c("basalPlusExt"),
@@ -1595,18 +2061,112 @@ output.all=rbind(output.all,output)
 }
 table(output.all$Database)
 output.all=data.frame(class='pos',extend='50kb',output.all)
-write.csv(output.all, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_neg.csv", col.names = T, row.names = F)
+write.table(output.all, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_pos.txt", col.names = T, row.names = F, quote = F, sep = "\t")
+save(output.all, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_pos.RData")
 ```
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-GREAT_pos <- read.csv(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_pos.csv", header = T) %>%
+GREAT_pos <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_pos.csv", header = T) %>%
   dplyr::arrange(Hyper_Adjp_BH)
-GREAT_neg <- read.csv(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_neg.csv", header = T) %>%
+GREAT_neg <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_neg.csv", header = T) %>%
   dplyr::arrange(Hyper_Adjp_BH)
 
 head(GREAT_pos, n=10)
 head(GREAT_neg, n=10) # Based on great analysis, hypomethylated CpGs were enriched in many GO terms
+```
+
+Draw plots
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+rm(list=ls())
+options(stringsAsFactor=F)
+library(WGCNA)
+require(openxlsx)
+library(writexl)
+library(gridExtra)
+library(ggpubr)
+library(grid)
+# Load great results
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_pos.RData")
+GREAT_pos <- output.all; rm(output.all)
+load(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_neg.RData")
+GREAT_neg <- output.all; rm(output.all)
+
+input0=rbind(GREAT_pos, GREAT_neg)
+out0.png='/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GREAT/GREAT_DATA.png'
+#
+input0$class.old=input0$class
+input0$class=ifelse(input0$class.old=='pos','Hypermethylation','Hypomethylation')#I added a column "class" on the rGREAT output for pos/neg
+# input=subset(input0,ObsGenes>=5)#I sometimes only use this QC after I browse the results
+input=subset(input0,Hyper_Total_Genes<=3000 & Hyper_Total_Genes >=10)#the number of genes in annotation (ex:Go term)
+dim(input)
+# input$BinomRank.old=input$BinomRank
+input$BinomRank<-NULL
+# input$HyperRank.old=input$HyperRank
+input$HyperRank<-NULL
+#
+input$DatabaseClass=paste(input$Database,input$class)
+input=input[order(input$DatabaseClass,input$Binom_Raw_PValue),]
+input$BinomRank<-unlist(sapply(split(input,input$DatabaseClass),function(x){BinomRank=rank(x$Binom_Raw_PValue,ties.method='min')}))
+# summary(input$BinomRank.old-input$BinomRank)
+#
+input=input[order(input$DatabaseClass,input$Hyper_Raw_PValue),]
+input$HyperRank<-unlist(sapply(split(input,input$DatabaseClass),function(x){HyperRank=rank(x$Hyper_Raw_PValue,ties.method='min')}))
+# summary(input$HyperRank.old-input$HyperRank)
+#
+input$log10P= -log10(input$Binom_Raw_PValue)
+input2.all=subset(input,BinomRank<=10)
+
+#
+input2.all=input2.all[order(input2.all$Binom_Raw_PValue),]
+unique(input2.all$Database)
+#
+library(ggpubr)
+library(dplyr)
+#
+id1=substr(input2.all$Database,1,2)=='GO'
+id2=input2.all$Database%in%c("MSigDB Predicted Promoter Motifs",  "MSigDB miRNA Motifs")
+id3=input2.all$Database%in%c("MSigDB Immunologic Signatures", "MSigDB Cancer Neighborhood" ,"MSigDB Oncogenic Signatures", "MSigDB Perturbation", "MSigDB Pathway")
+id4=input2.all$Database%in%c("MGI Expression: Detected", "Mouse Phenotype", "Mouse Phenotype Single KO")
+id5=input2.all$Database%in%c("PANTHER Pathway","BioCyc Pathway")
+id6=input2.all$Database%in%c("Disease Ontology","Human Phenotype","HGNC Gene Families","InterPro","Placenta Disorders" )
+input2.all$MegaDatabase=NA
+input2.all$MegaDatabase[id1]='GO'
+input2.all$MegaDatabase[id2]='MSigDB Motif'
+input2.all$MegaDatabase[id3]='MsigDB'
+input2.all$MegaDatabase[id4]='Mouse'
+input2.all$MegaDatabase[id5]='PANTHER& Metabolic pathway'
+input2.all$MegaDatabase[id6]='Human Phenotype etc.'
+table(input2.all$MegaDatabase,input2.all$Database)
+table(input2.all$Database[is.na(input2.all$MegaDatabase)])
+
+# input2.all <- input2.all %>% dplyr::filter(Database != "TreeFam")
+
+mega=unique(input2.all$Database)
+p1.list=list()
+for(k in 1:length(mega)){
+input2=subset(input2.all,Database==mega[k])
+out.png=gsub(out0.png,pattern='DATA',rep=mega[[k]])
+input2$name=substr(as.character(input2$name),1,80)
+# input2$name=factor(as.character(input2$name),levels=unique(input2$name[order(input2$Binom_Raw_PValue)]),ordered=T)
+order <- unique(input2$name)
+input2 <- input2 %>%
+  dplyr::mutate(name = factor(name, levels = rev(order)))
+p1<-ggplot(input2,aes(x=log10P,y=name,size=Hyper_Observed_Gene_Hits/Hyper_Total_Genes,colour=-log10(Binom_Raw_PValue)))+
+  geom_point()+scale_color_continuous(low="blue", high="red", name = "-Log10(P-value)", guide=guide_colorbar(reverse=F))+
+  DOSE::theme_dose(40)+
+  scale_size(range=c(12, 24)) + 
+  ylab(label = mega[k])
+
+p1<-p1+theme(strip.text.x = element_text(size = 40, face = "bold"))
+p1<-p1+facet_grid(.~class)
+#
+p1.list[[k]]=p1
+png(out.png, width=2500, height=1200)
+p <- gridExtra::grid.arrange(arrangeGrob(p1.list[[k]]))
+dev.off()
+}
 ```
 
 ### eFORGE
@@ -1618,10 +2178,10 @@ https://eforge.altiusinstitute.org/
 ```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
 # Prepare input file for eFORGE
 rm(list = ls())
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
 
 # Use biomart for annotation
-biomart <- read.csv(file = "D:/Dropbox/Horvath_Lab/Onging_Project/Aging_Gene_local/Reference_and_SummaryStatistics/Ortholog_Genes/geneID_to_geneSymbol/hsapiens v2.csv", header = T) %>%
+biomart <- read.csv(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Aging_Gene_local/Reference_and_SummaryStatistics/Ortholog_Genes/geneID_to_geneSymbol/hsapiens v2.csv", header = T) %>%
   dplyr::filter(external_gene_name != "")
 
 top500_pos <- 
@@ -1633,13 +2193,44 @@ top500_neg <-
   dplyr::left_join(biomart, by = c("gene_name" = "external_gene_name")) %>%
   dplyr::distinct(CPG.Labels, .keep_all= TRUE)
 
-write.csv(top500_pos, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500_pos.csv", col.names = T, row.names = F)
-write.csv(top500_neg, file = "D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500_neg.csv", col.names = T, row.names = F)
+write.csv(top500_pos, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500_pos.csv", col.names = T, row.names = F)
+write.csv(top500_neg, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500_neg.csv", col.names = T, row.names = F)
 ```
 
 Top 500 hypermethylated CpGs has no significant results.
 
-![](D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/eFORGE_neg.png)
+![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/eFORGE_neg.png)
+
+### eQTMs
+
+```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+######################################
+# Check eQTMs
+######################################
+
+# https://www.nature.com/articles/s41467-019-10487-4 Based on this paper.
+# BBMRI http://bbmri.researchlumc.nl/atlas/# this website can identify meQTLs
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Exosome_EWAS_crude_top500.RData")
+
+BIOS_eqtm <- read.table(file = "/Users/qiyan/Dropbox/PhD_UCLA/PEG/PD_Pest_MultiOmics/Raw_Data/EWAS_DJ Data/BIOS_eQTM/2015_09_02_cis_eQTMsFDR0.05-CpGLevel.txt", header = T, sep = "\t")
+top500_pos <- 
+  top500_pos %>%
+  dplyr::select(CPG.Labels) %>%
+  as.matrix() %>%
+  as.vector()
+top500_neg <- 
+  top500_neg %>%
+  dplyr::select(CPG.Labels) %>%
+  as.matrix() %>%
+  as.vector()
+
+pos_eqtm <- 
+  BIOS_eqtm %>%
+  dplyr::filter(SNPName %in% top500_pos)
+neg_eqtm <- 
+  BIOS_eqtm %>%
+  dplyr::filter(SNPName %in% top500_neg)
+```
 
 ## Shannon entropy
 
@@ -1649,7 +2240,7 @@ Shannon entropy can be used in the context of DNA methylation analysis to estima
 
 ```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
 rm(list = ls())
-load("D:/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
 
 methy_matrix <- as.data.frame(t(methy_matrix))
 
@@ -1680,15 +2271,57 @@ paired_t <- function(input_matrix = sample_matrix, var){
   temp_stat <- unlist(c(temp_stat, stat.test$estimate, stat.test$conf.int, stat.test$p.value)) # mean by group and two-sided p value from paired t test
   names(temp_stat) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
   # Create a box plot
-  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 1, point.size = 2, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none")
-  bxp <- ggpar(bxp, font.tickslab = c(14,"bold"), font.x = c(14,"bold"), font.y = c(14,"bold"))
+  Means <- input_matrix %>% group_by(Time) %>% 
+    summarize(Avg = mean(.data[[var]]))
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 2.5, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+    geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 9) +
+    geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") +
+    theme(plot.margin = unit(c(4,4,4,4), "lines")) +
+    coord_cartesian(clip = "off")
+  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(23,"bold"), font.y = c(23,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 9, fontface = "bold")
   # Add p-value and significance levels
-  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 5)
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
   
   return(list(temp_stat, temp_plot))
 }
 
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/shannon_boxplot.png", width=1200, height=1200)
 paired_t(var = "entropy")
+dev.off()
+
+# Spaghetti Plot
+info=sample_matrix
+yvars=c('entropy')
+yvars.txt=c('Shannon Entropy')
+info=info[order(info$BH.ID),]
+id1=which(info$Time=='Before')
+id2=which(info$Time=='After')
+info$Age.new=info$Age
+info$Age.new[id2]=info$Age[id2]+7
+head(subset(info,select=c(BH.ID,Age,Age.new,Time)))
+info1=subset(info,Time=='Before')
+info2=subset(info,Time!='Before')
+summary(info1$Age)
+summary(info2$Age.new-info1$Age)
+#
+k=1
+info$y=info[,yvars[k]]
+info1$y=info1[,yvars[k]]
+info2$y=info2[,yvars[k]]
+info2$y.correct=info2$y+(info1$Age-info2$Age)
+diff=round(mean(info2$y-info1$y),digits=2)
+
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/shannon_spaghetti.png", width=1500, height=1200)
+ggplot(data=info,aes(x=Age.new,y=y))+geom_point(cex = 6)+geom_smooth(method='lm',se=F, size = 2.5)+
+  aes(colour=factor(BH.ID))+xlab('Age (baseline) to Age+7 (0.2yr)')+ylab(yvars.txt[k])+
+  ggtitle("Shannon Entropy")+labs(col='BH.ID')+
+  theme_classic(base_size = 30) +
+  theme(axis.title.x = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"),
+        axis.text.y = element_text(face = "bold"))
+dev.off()
 ```
 
 
@@ -1698,3 +2331,17 @@ paired_t(var = "entropy")
 2) What are Tx and group?
 3) Filtering probes?
   - right now there are 866238 probes, less than 866836 EPIC probes, what are those probes that were removed? Shold we further remove sex chromosomes?
+  
+  
+  - enrichr,
+  - GenomicRanges package in R81. We identified which CpGs were
+located within 1Mb windows (±0.5 Mb) surrounding each of the 324 autosomal
+SNPs, which correspond to 280 potential unique loci. w/ aging genes
+
+The DMRs were identified by both coMethDMR13 and combp12
+software
+
+Similarly, we also used Fisher’s test to assess enrichment of significant DMRs in
+different chromatin states by comparing with the 15-chromatin state data
+estimated with ChromHMM21 using a DLPFC tissue sample (E073) from the
+Roadmap Epigenomics Project23
