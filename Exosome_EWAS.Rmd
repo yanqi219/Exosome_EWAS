@@ -277,8 +277,8 @@ load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local
 ClockMatrix <- 
   sample_matrix %>%
   dplyr::filter(Time == "Before") %>%
-  dplyr::select("Age", "AgeAccelerationResidual", "AgeAccelerationResidualHannum", "DNAmAgeSkinBloodClockAdjAge", "DNAmTLAdjAge", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
-colnames(ClockMatrix) <- c("Age", "AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelTL", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
+  dplyr::select("Age", "AgeAccelerationResidual", "AgeAccelerationResidualHannum", "DNAmAgeSkinBloodClockAdjAge", "DNAmTLAdjAge", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
+colnames(ClockMatrix) <- c("Age", "AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelTL", "AgeAccelPheno", "AgeAccelGrim", "DNAmADMAdjAge", "DNAmB2MAdjAge", "DNAmCystatinCAdjAge", "DNAmGDF15AdjAge", "DNAmLeptinAdjAge", "DNAmPACKYRSAdjAge", "DNAmPAI1AdjAge", "DNAmTIMP1AdjAge", "CD8.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran")
 cor_matrix <- cor(ClockMatrix)
 
 get_upper_tri <- function(cormat){
@@ -297,13 +297,69 @@ ggheatmap <- ggplot(data = melted_cormat, aes(Var2, Var1, fill = value)) +
                        midpoint = 0, limit = c(-1,1), space = "Lab", 
                        name="Pearson\nCorrelation") +
   theme_minimal() +  
-  theme(axis.text.x = element_text(angle = 45, vjust = 1,size = 30, hjust = 1, color = "black"), 
-        axis.text.y = element_text(size = 30, color = "black"),
+  theme(axis.text.x = element_text(angle = 45, vjust = 1,size = 40, hjust = 1, color = "black"), 
+        axis.text.y = element_text(size = 40, color = "black"),
         legend.text = element_text(size = 30),
         legend.title = element_text(size = 40)) + 
   coord_fixed()
 
-png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_corr.png", width=2800, height=2800)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/SFigure2_DNAmClock_corr.png", width=2800, height=2800)
+ggheatmap + 
+  geom_text(aes(Var2, Var1, label = round(value,2)), color = "black", size = 14) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.3, 0.9),
+    legend.direction = "horizontal") +
+  guides(fill = guide_colorbar(barwidth = 20, barheight = 3,
+                              title.position = "top", title.hjust = 0.5))
+dev.off()
+```
+
+### Correlations between biomarkers
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+biomarker_matrix_temp <- biomarker_matrix %>%
+  dplyr::filter(!(BH.ID %in% c(250758, 877118)))
+ClockMatrix <- sample_matrix %>% dplyr::left_join(biomarker_matrix_temp, by = c("BH.ID", "Time"))
+ClockMatrix <- 
+  ClockMatrix %>%
+  dplyr::filter(Time == "Before") %>%
+  dplyr::select("Age", "AgeAccelerationResidual", "Basos", "Carbon Dioxide Total", "Creatinine", "Creatinine Urine", "DPD/Crt Ratio", "eGFR If Africn Am", "eGFR If NonAfricn Am", "Eos", "Ferritin", "Hematocrit", "Immunoglobulin A Qn", "Immunoglobulin G Qn", "Immunoglobulin M Qn", "Insulin", "Insulin-Like Growth Factor I", "LDH", "LH", "MCHC", "MCV", "pH", "RDW", "Triiodothyronine Free")
+
+
+colnames(ClockMatrix) <- c("Age", "AgeAccelHorvath", "Basos", "Carbon Dioxide Total", "Creatinine", "Creatinine Urine", "DPD/Crt Ratio", "eGFR If Africn Am", "eGFR If NonAfricn Am", "Eos", "Ferritin", "Hematocrit", "Immunoglobulin A Qn", "Immunoglobulin G Qn", "Immunoglobulin M Qn", "Insulin", "Insulin-Like Growth Factor I", "LDH", "LH", "MCHC", "MCV", "pH", "RDW", "Triiodothyronine Free")
+cor_matrix <- cor(ClockMatrix, use="pairwise")
+
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+upper_tri <- get_upper_tri(cor_matrix)
+
+library(reshape2)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+# Heatmap
+library(ggplot2)
+ggheatmap <- ggplot(data = melted_cormat, aes(Var2, Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "#0099CC", high = "#FF3333", mid = "#FFFFFF", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1,size = 40, hjust = 1, color = "black"), 
+        axis.text.y = element_text(size = 40, color = "black"),
+        legend.text = element_text(size = 30),
+        legend.title = element_text(size = 40)) + 
+  coord_fixed()
+
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/SFigure1_Biomarker_corr.png", width=2800, height=2800)
 ggheatmap + 
   geom_text(aes(Var2, Var1, label = round(value,2)), color = "black", size = 14) +
   theme(
@@ -343,16 +399,77 @@ paired_t <- function(input_matrix = sample_matrix, var){
   names(temp_stat) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
   # Create a box plot
   Means <- input_matrix %>% group_by(Time) %>% 
-    summarize(Avg = mean(.data[[var]]))
-  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 2.5, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+    summarize(Avg = mean(.data[[var]], na.rm=TRUE))
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", fill = "Time", line.color = "gray", line.size = 2.5, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
     geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 9) +
+    geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") +
+    theme(plot.margin = unit(c(4,4,4,4), "lines")) +
+    coord_cartesian(clip = "off")
+  bxp <- ggpar(bxp, font.tickslab = c(30,"bold"), font.x = c(36,"bold"), font.y = c(36, "bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 11, fontface = "bold")
+  # Add p-value and significance levels
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 13, fontface = "bold.italic")
+  
+  return(list(temp_stat, temp_plot))
+}
+
+paired_t_sex <- function(input_matrix = sample_matrix, var){
+  # Stratified by sex
+  input_matrix_M <- input_matrix %>% dplyr::filter(Gender == "M")
+  input_matrix_F <- input_matrix %>% dplyr::filter(Gender == "F")
+  temp_stat_M <- input_matrix_M %>%
+    dplyr::group_by(Time) %>%
+    dplyr::summarise(mean = mean(.data[[var]], na.rm=TRUE)) %>%
+    dplyr::select(mean) %>%
+    c()
+  temp_stat_F <- input_matrix_F %>%
+    dplyr::group_by(Time) %>%
+    dplyr::summarise(mean = mean(.data[[var]], na.rm=TRUE)) %>%
+    dplyr::select(mean) %>%
+    c()
+  
+  fm <- as.formula(paste(var, "~ Time"))
+  stat.test_M <- t.test(data = input_matrix_M,fm, paired = TRUE, alternative = "two.sided")
+  stat.test_F <- t.test(data = input_matrix_F,fm, paired = TRUE, alternative = "two.sided")
+  # stat.test <- t_test(fm, paired = TRUE, detailed = TRUE, ref.group = "Before", data = input_matrix) %>%
+  #   add_significance()
+  temp_stat_M <- unlist(c(temp_stat_M, stat.test_M$estimate, stat.test_M$conf.int, stat.test_M$p.value)) # mean by group and two-sided p value from paired t test
+  names(temp_stat_M) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
+  temp_stat_F <- unlist(c(temp_stat_F, stat.test_F$estimate, stat.test_F$conf.int, stat.test_F$p.value)) # mean by group and two-sided p value from paired t test
+  names(temp_stat_F) <- c("After", "Before", "difference", "ci_low", "ci_high", "p_value")
+  temp_stat <- rbind(temp_stat_M, temp_stat_F)
+  sex = data.frame(sex = c("Male", "Female"))
+  temp_stat <- cbind(temp_stat, sex)
+  temp_stat$clock <- var
+  
+  # Create a box plot
+  ## Male
+  Means <- input_matrix_M %>% group_by(Time) %>% 
+    summarize(Avg = mean(.data[[var]], na.rm=TRUE))
+  bxp <- ggpaired(input_matrix_M, x = "Time", y = var, id = "BH.ID", fill = "Time", line.color = "gray", line.size = 2.5, point.size = 5, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+    geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 7) +
     geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") + 
     theme(plot.margin = unit(c(4,4,4,4), "lines")) +
     coord_cartesian(clip = "off")
-  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(23,"bold"), font.y = c(23,"bold"))  + 
-    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 9, fontface = "bold")
+  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(24,"bold"), font.y = c(24,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 8, fontface = "bold")
   # Add p-value and significance levels
-  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
+  temp_plot_M <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
+  
+  ## Female
+  Means <- input_matrix_F %>% group_by(Time) %>% 
+    summarize(Avg = mean(.data[[var]], na.rm=TRUE))
+  bxp <- ggpaired(input_matrix_F, x = "Time", y = var, id = "BH.ID", fill = "Time", line.color = "gray", line.size = 2.5, point.size = 5, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+    geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 7) +
+    geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") + 
+    theme(plot.margin = unit(c(4,4,4,4), "lines")) +
+    coord_cartesian(clip = "off")
+  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(24,"bold"), font.y = c(24,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 8, fontface = "bold")
+  # Add p-value and significance levels
+  temp_plot_F <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
+  
+  temp_plot <- ggarrange(temp_plot_M, temp_plot_F, labels = c("Male", "Female"), ncol = 2, nrow = 1, vjust = 1,font.label = list(size = 25, face = "bold"))
   
   return(list(temp_stat, temp_plot))
 }
@@ -431,6 +548,30 @@ dev.off()
 
 ![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_forest.png)
 ![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/DNAmClock_boxplot.png)
+__Stratified by sex__
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+
+# DNAm clocks
+AgeAccelerationResidual <- paired_t_sex(var = "AgeAccelerationResidual")
+AgeAccelerationResidualHannum <- paired_t_sex(var = "AgeAccelerationResidualHannum")
+DNAmAgeSkinBloodClockAdjAge <- paired_t_sex(var = "DNAmAgeSkinBloodClockAdjAge")
+DNAmTLAdjAge <- paired_t_sex(var = "DNAmTLAdjAge")
+AgeAccelPheno <- paired_t_sex(var = "AgeAccelPheno")
+AgeAccelGrim <- paired_t_sex(var = "AgeAccelGrim")
+
+statistics <- rbind(AgeAccelerationResidual[1][[1]], AgeAccelerationResidualHannum[1][[1]], DNAmAgeSkinBloodClockAdjAge[1][[1]], DNAmTLAdjAge[1][[1]],AgeAccelPheno[1][[1]], AgeAccelGrim[1][[1]]) %>%
+  as.data.frame()
+statistics_DNAmAge_sex <- statistics %>%
+  dplyr::mutate(Type = "DNAmAge") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
+
+# Paired barplots
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/DNAmClock_boxplot_sex.png", width=2800, height=1600)
+ggarrange(AgeAccelerationResidual[2][[1]], AgeAccelerationResidualHannum[2][[1]], DNAmAgeSkinBloodClockAdjAge[2][[1]], DNAmTLAdjAge[2][[1]], AgeAccelPheno[2][[1]], AgeAccelGrim[2][[1]], labels = NA, ncol = 3, nrow = 2, vjust = 1,font.label = list(size = 22, face = "bold"))
+dev.off()
+```
 
 #### GrimAge Components
 
@@ -505,10 +646,40 @@ ggarrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[
 # 
 # gridExtra::grid.arrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], nrow = 2)
 dev.off()
+
+# Paired barplots - GrimAge and components
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GrimAgeAll_boxplot.png", width=2600, height=2600)
+ggarrange(AgeAccelGrim[2][[1]], DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], labels = NA, ncol = 3, nrow = 3, vjust = 1,font.label = list(size = 22, face = "bold"))
+dev.off()
 ```
 
 ![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_forest.png)
 ![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/GrimAgeComp_boxplot.png)
+
+__Stratified by sex__
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# DNAm clocks
+DNAmADMAdjAge <- paired_t_sex(var = "DNAmADMAdjAge")
+DNAmB2MAdjAge <- paired_t_sex(var = "DNAmB2MAdjAge")
+DNAmCystatinCAdjAge <- paired_t_sex(var = "DNAmCystatinCAdjAge")
+DNAmGDF15AdjAge <- paired_t_sex(var = "DNAmGDF15AdjAge")
+DNAmLeptinAdjAge <- paired_t_sex(var = "DNAmLeptinAdjAge")
+DNAmPACKYRSAdjAge <- paired_t_sex(var = "DNAmPACKYRSAdjAge")
+DNAmPAI1AdjAge <- paired_t_sex(var = "DNAmPAI1AdjAge")
+DNAmTIMP1AdjAge <- paired_t_sex(var = "DNAmTIMP1AdjAge")
+
+statistics <- rbind(DNAmADMAdjAge[1][[1]], DNAmB2MAdjAge[1][[1]], DNAmCystatinCAdjAge[1][[1]], DNAmGDF15AdjAge[1][[1]], DNAmLeptinAdjAge[1][[1]], DNAmPACKYRSAdjAge[1][[1]], DNAmPAI1AdjAge[1][[1]], DNAmTIMP1AdjAge[1][[1]]) %>%
+  as.data.frame()
+statistics_GrimAge_sex <- statistics %>%
+  dplyr::mutate(Type = "GrimAge") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
+
+# Paired barplots
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GrimAgeComp_boxplot_sex.png", width=2800, height=2600)
+ggarrange(DNAmADMAdjAge[2][[1]], DNAmB2MAdjAge[2][[1]], DNAmCystatinCAdjAge[2][[1]], DNAmGDF15AdjAge[2][[1]], DNAmLeptinAdjAge[2][[1]], DNAmPACKYRSAdjAge[2][[1]], DNAmPAI1AdjAge[2][[1]], DNAmTIMP1AdjAge[2][[1]], labels = NA, ncol = 3, nrow = 3, vjust = 1,font.label = list(size = 22, face = "bold"))
+dev.off()
+```
 
 #### Cell types
 
@@ -577,15 +748,44 @@ mtext("FollowUp-baseline (95% CI)", at=nvar+0.8, adj=0.2, side=4, las=2,
 dev.off()
 
 # Paired barplots
-png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/CellType_boxplot.png", width=2933, height=1600)
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/CellType_boxplot.png", width=2300, height=2300)
 # ggarrange(CD8.naive[2][[1]], CD4.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = c("CD8.naive", "CD4.naive", "CD8pCD28nCD45RAn", "PlasmaBlast", "CD4T", "NK", "Mono", "Gran"), ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
-ggarrange(CD8.naive[2][[1]], CD4.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = NA, ncol = 4, nrow = 2, vjust = 1,font.label = list(size = 14, face = "bold"))
+ggarrange(CD8.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = NA, ncol = 3, nrow = 3, vjust = 1,font.label = list(size = 14, face = "bold"))
 dev.off()
 ```
 
 ![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/CellType_forest.png)
 
 ![](/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/CellType_boxplot.png)
+
+__Stratified by sex__
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+# DNAm clocks
+CD8.naive <- paired_t_sex(var = "CD8.naive")
+CD8pCD28nCD45RAn <- paired_t_sex(var = "CD8pCD28nCD45RAn")
+PlasmaBlast <- paired_t_sex(var = "PlasmaBlast")
+CD4T <- paired_t_sex(var = "CD4T")
+NK <- paired_t_sex(var = "NK")
+Mono <- paired_t_sex(var = "Mono")
+Gran <- paired_t_sex(var = "Gran")
+
+statistics <- rbind(CD8.naive[1][[1]], CD8pCD28nCD45RAn[1][[1]], PlasmaBlast[1][[1]], CD4T[1][[1]], NK[1][[1]], Mono[1][[1]], Gran[1][[1]]) %>%
+  as.data.frame()
+statistics_celltype_sex <- statistics %>%
+  dplyr::mutate(Type = "CellType") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
+
+# Paired barplots
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/CellType_boxplot_sex.png", width=2300, height=2300)
+ggarrange(CD8.naive[2][[1]], CD8pCD28nCD45RAn[2][[1]], PlasmaBlast[2][[1]], CD4T[2][[1]], NK[2][[1]], Mono[2][[1]], Gran[2][[1]], labels = NA, ncol = 3, nrow = 3, vjust = 1,font.label = list(size = 14, face = "bold"))
+dev.off()
+```
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+all <- rbind(statistics_DNAmAge_sex, statistics_GrimAge_sex, statistics_celltype_sex)
+write.csv(all, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/paired  t-test of DNAmAge_sex.csv", col.names = T, row.names = F)
+```
 
 #### Biomarkers
 
@@ -607,18 +807,24 @@ biomarker_matrix <-
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+biomarker_matrix <- biomarker_matrix %>%
+  dplyr::filter(!(BH.ID %in% c(250758, 877118)))
+
+# Remove those w/ more than 20% missing
+missing <- apply(biomarker_matrix, 2, function(x) sum(is.na(x))/nrow(biomarker_matrix) < 0.2)
+biomarker_matrix <- biomarker_matrix[,missing]
+biomarker_matrix_temp <- biomarker_matrix
 
 # Need to change some of the variables' name
-biomarker_matrix_temp <- biomarker_matrix %>%
-  dplyr::filter(!(BH.ID %in% c(250758, 877118)))
 colnames(biomarker_matrix_temp) <- colnames(biomarker_matrix) %>%
   gsub(pattern = ('/'), replacement = '', x = .,fixed = T) %>%
   gsub(pattern = ('('), replacement = '', x = .,fixed = T) %>%
   gsub(pattern = (')'), replacement = '', x = .,fixed = T) %>% 
   gsub(pattern = ('-'), replacement = '', x = .,fixed = T) %>% 
   gsub(pattern = (' '), replacement = '', x = .,fixed = T)
-
-col_name <- colnames(biomarker_matrix_temp[,4:ncol(biomarker_matrix_temp)])
+biomarker_matrix_temp <- biomarker_matrix_temp %>%
+  dplyr::left_join(sample_matrix[,c("BH.ID", "Time", "Gender")], by = c("BH.ID", "Time")) # Add sex back
+col_name <- colnames(biomarker_matrix_temp[,4:(ncol(biomarker_matrix_temp)-1)])
 statistics <- {}
 for (i in 1:length(col_name)) {
   variable <- col_name[i]
@@ -639,16 +845,16 @@ Combine them all together
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 final_result <- rbind(statistics_DNAmAge, statistics_GrimAge, statistics_celltype, statistics_biomarker) %>%
   dplyr::rename(Variable = "clock") %>%
-  dplyr::filter(!(Variable %in% c("Cytomegalovirus (CMV) Ab IgM", "Immature Grans (Abs)", "Immature Granulocytes", "Lipoprotein (a)")))
+  dplyr::filter(!(Variable %in% c("Cytomegalovirus (CMV) Ab IgM", "Lipoprotein (a)")))
 # write.csv(final_result, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/paired  t-test of all measurements.csv", row.names = F, col.names = T)
 ```
 
-__Figures for DNAm clocks__
+__Figures for biomarkers__
 
 ```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
 statistics_rescale <- statistics %>%
-  dplyr::filter(!(clock %in% c("Cytomegalovirus (CMV) Ab IgM", "Immature Grans (Abs)", "Immature Granulocytes", "Lipoprotein (a)"))) %>%
-  dplyr::filter(p_value < 0.05)
+  dplyr::filter(!(clock %in% c("Cytomegalovirus (CMV) Ab IgM", "Lipoprotein (a)"))) %>%
+  dplyr::filter(p_value < 0.01)
 
 # Need to change some of the variables' name
 biomarker_matrix_temp <- biomarker_matrix %>%
@@ -673,6 +879,83 @@ dev.off()
 ```
 
 Question: which type of plot should be used in the manuscript? Do we want to put sex-stratified results in the main manuscript or supplements?
+
+#### Biomarker - Stratified by sex
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+biomarker_matrix <- biomarker_matrix %>%
+  dplyr::filter(!(BH.ID %in% c(250758, 877118)))
+
+# Remove those w/ more than 20% missing
+missing <- apply(biomarker_matrix, 2, function(x) sum(is.na(x))/nrow(biomarker_matrix) < 0.2)
+biomarker_matrix <- biomarker_matrix[,missing]
+biomarker_matrix_temp <- biomarker_matrix
+
+# Need to change some of the variables' name
+colnames(biomarker_matrix_temp) <- colnames(biomarker_matrix) %>%
+  gsub(pattern = ('/'), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = ('('), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = (')'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = ('-'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = (' '), replacement = '', x = .,fixed = T)
+biomarker_matrix_temp <- biomarker_matrix_temp %>%
+  dplyr::left_join(sample_matrix[,c("BH.ID", "Time", "Gender")], by = c("BH.ID", "Time")) # Add sex back
+col_name <- colnames(biomarker_matrix_temp[,4:(ncol(biomarker_matrix_temp)-1)])
+statistics <- {}
+for (i in 1:length(col_name)) {
+  variable <- col_name[i]
+  try(temp <- paired_t_sex(var = variable, input_matrix = biomarker_matrix_temp))
+  statistics <- rbind(statistics, temp[1][[1]])
+  temp <- NA
+}
+statistics_biomarker <- statistics %>%
+  dplyr::mutate(Type = "Biomarker") %>%
+  dplyr::mutate(Direction = ifelse(difference < 0, "Negative", "Positive"))
+statistics_biomarker <- statistics_biomarker %>% dplyr::filter(!(clock %in% c("Cytomegalovirus (CMV) Ab IgM", "Lipoprotein (a)", "UrobilinogenSemiOn")))
+write.csv(statistics_biomarker, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/paired  t-test of all measurements_sex.csv", row.names = F, col.names = T)
+```
+
+```{r , echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+biomarker_matrix <- biomarker_matrix %>%
+  dplyr::filter(!(BH.ID %in% c(250758, 877118)))
+
+# Remove those w/ more than 20% missing
+missing <- apply(biomarker_matrix, 2, function(x) sum(is.na(x))/nrow(biomarker_matrix) < 0.2)
+biomarker_matrix <- biomarker_matrix[,missing]
+biomarker_matrix_temp <- biomarker_matrix
+
+# Need to change some of the variables' name
+colnames(biomarker_matrix_temp) <- colnames(biomarker_matrix) %>%
+  gsub(pattern = ('/'), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = ('('), replacement = '', x = .,fixed = T) %>%
+  gsub(pattern = (')'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = ('-'), replacement = '', x = .,fixed = T) %>% 
+  gsub(pattern = (' '), replacement = '', x = .,fixed = T)
+biomarker_matrix_temp <- biomarker_matrix_temp %>%
+  dplyr::left_join(sample_matrix[,c("BH.ID", "Time", "Gender")], by = c("BH.ID", "Time")) # Add sex back
+col_name <- colnames(biomarker_matrix_temp[,4:(ncol(biomarker_matrix_temp)-1)])
+
+# DNAm clocks
+Basos <- paired_t_sex(var = "Basos", input_matrix = biomarker_matrix_temp)
+CarbonDioxideTotal <- paired_t_sex(var = "CarbonDioxideTotal", input_matrix = biomarker_matrix_temp)
+Creatinine <- paired_t_sex(var = "Creatinine", input_matrix = biomarker_matrix_temp)
+eGFRIfAfricnAm <- paired_t_sex(var = "eGFRIfAfricnAm", input_matrix = biomarker_matrix_temp)
+eGFRIfNonAfricnAm <- paired_t_sex(var = "eGFRIfNonAfricnAm", input_matrix = biomarker_matrix_temp)
+ImmunoglobulinGQn <- paired_t_sex(var = "ImmunoglobulinGQn", input_matrix = biomarker_matrix_temp)
+ImmunoglobulinMQn <- paired_t_sex(var = "ImmunoglobulinMQn", input_matrix = biomarker_matrix_temp)
+LH <- paired_t_sex(var = "LH", input_matrix = biomarker_matrix_temp)
+MCHC <- paired_t_sex(var = "MCHC", input_matrix = biomarker_matrix_temp)
+MCH <- paired_t_sex(var = "MCH", input_matrix = biomarker_matrix_temp)
+MCV <- paired_t_sex(var = "MCV", input_matrix = biomarker_matrix_temp)
+RDW <- paired_t_sex(var = "RDW", input_matrix = biomarker_matrix_temp)
+
+# Paired barplots
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/Biomarker_boxplot_sex.png", width=1600, height=2900)
+ggarrange(Basos[2][[1]], CarbonDioxideTotal[2][[1]], Creatinine[2][[1]], eGFRIfAfricnAm[2][[1]], eGFRIfNonAfricnAm[2][[1]], ImmunoglobulinGQn[2][[1]], ImmunoglobulinMQn[2][[1]], LH[2][[1]], MCHC[2][[1]], MCH[2][[1]], MCV[2][[1]], RDW[2][[1]], labels = NA, ncol = 2, nrow = 6, vjust = 1,font.label = list(size = 22, face = "bold"))
+dev.off()
+```
  
 ## EWAS
 
@@ -1077,15 +1360,15 @@ paired_t <- function(input_matrix = sample_matrix, var){
   # Create a box plot
   Means <- input_matrix %>% group_by(Time) %>% 
     summarize(Avg = mean(.data[[var]]))
-  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 2, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", fill = "Time", line.color = "gray", line.size = 2, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
     geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 9) +
     geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") +
     theme(plot.margin = unit(c(4,4,4,4), "lines")) +
     coord_cartesian(clip = "off")
-  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(23,"bold"), font.y = c(23,"bold"))  + 
-    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 9, fontface = "bold")
+  bxp <- ggpar(bxp, font.tickslab = c(28,"bold"), font.x = c(30,"bold"), font.y = c(30,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 11, fontface = "bold")
   # Add p-value and significance levels
-  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 11, fontface = "bold.italic")
   
   return(list(temp_stat, temp_plot))
 }
@@ -2141,7 +2424,7 @@ input2.all$MegaDatabase[id6]='Human Phenotype etc.'
 table(input2.all$MegaDatabase,input2.all$Database)
 table(input2.all$Database[is.na(input2.all$MegaDatabase)])
 
-# input2.all <- input2.all %>% dplyr::filter(Database != "TreeFam")
+input2.all <- input2.all %>% dplyr::filter(Database != "TreeFam")
 
 mega=unique(input2.all$Database)
 p1.list=list()
@@ -2167,6 +2450,40 @@ png(out.png, width=2500, height=1200)
 p <- gridExtra::grid.arrange(arrangeGrob(p1.list[[k]]))
 dev.off()
 }
+```
+
+```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+# Draw plot - GO
+go_long <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_summary.xlsx", sheetName = "go_Summary") %>%
+  dplyr::mutate(Direction = factor(Direction, levels = c("Hypermethylation", "Hypomethylation")))
+order <- unique(go_long$Pathways)
+go_long <- go_long %>%
+  dplyr::mutate(Pathways = factor(Pathways, levels = rev(order)))
+
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GREAT_GO.png", width=2200, height=1200)
+ggplot(go_long, aes_string(x="log10P", y="Pathways", size="Binom_Fold_Enrichment", color="log10P")) + 
+  geom_point() +
+  scale_color_continuous(low="blue", high="red", name = "-Log10(P-value)", guide=guide_colorbar(reverse=F)) +
+  ylab(NULL) + ggtitle("") + DOSE::theme_dose(40) + scale_size(range=c(6, 16)) +
+  facet_grid(. ~ Direction) +
+  theme(strip.text.x = element_text(size = 40, face = "bold"))
+dev.off()
+
+# Draw plot - MSigDB
+kegg_long <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/GREAT_summary.xlsx", sheetName = "msigdb_Summary") %>%
+  dplyr::mutate(Direction = factor(Direction, levels = c("Hypermethylation", "Hypomethylation")))
+order <- unique(kegg_long$Pathways)
+kegg_long <- kegg_long %>%
+  dplyr::mutate(Pathways = factor(Pathways, levels = rev(order)))
+
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/GREAT_MSigDB.png", width=2000, height=1200)
+ggplot(kegg_long, aes_string(x="log10P", y="Pathways", size="Binom_Fold_Enrichment", color="log10P")) + 
+  geom_point() +
+  scale_color_continuous(low="blue", high="red", name = "-Log10(P-value)", guide=guide_colorbar(reverse=F)) +
+  ylab(NULL) + ggtitle("") + DOSE::theme_dose(40) + scale_size(range=c(12, 24)) +
+  facet_grid(. ~ Direction) +
+  theme(strip.text.x = element_text(size = 40, face = "bold"))
+dev.off()
 ```
 
 ### eFORGE
@@ -2273,15 +2590,15 @@ paired_t <- function(input_matrix = sample_matrix, var){
   # Create a box plot
   Means <- input_matrix %>% group_by(Time) %>% 
     summarize(Avg = mean(.data[[var]]))
-  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", color = "Time", line.color = "gray", line.size = 2.5, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
+  bxp <- ggpaired(input_matrix, x = "Time", y = var, id = "BH.ID", fill = "Time", line.color = "gray", line.size = 2.5, point.size = 7, palette = "jco", order = c("Before", "After"), ylab = var, xlab = "Time", legend = "none") +
     geom_point(data = Means, mapping = aes(x = Time, y = Avg), color = "red", shape = 18, cex = 9) +
     geom_line(data = Means, mapping = aes(x = Time, y = Avg, group = 1), size = 2.5, linetype = 2, color = "red") +
     theme(plot.margin = unit(c(4,4,4,4), "lines")) +
     coord_cartesian(clip = "off")
-  bxp <- ggpar(bxp, font.tickslab = c(23,"bold"), font.x = c(23,"bold"), font.y = c(23,"bold"))  + 
-    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 9, fontface = "bold")
+  bxp <- ggpar(bxp, font.tickslab = c(32,"bold"), font.x = c(34,"bold"), font.y = c(30,"bold"))  + 
+    geom_text(data = Means, aes(x = factor(Time), y = Avg, label = paste("Mean = ",round(Avg, 2), sep = "")), nudge_x = .4, size = 11, fontface = "bold")
   # Add p-value and significance levels
-  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 9, fontface = "bold.italic")
+  temp_plot <- bxp + stat_compare_means(method = "t.test", paired = T, ref.group = "Before", size = 15, fontface = "bold.italic")
   
   return(list(temp_stat, temp_plot))
 }
@@ -2316,7 +2633,7 @@ png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_l
 ggplot(data=info,aes(x=Age.new,y=y))+geom_point(cex = 6)+geom_smooth(method='lm',se=F, size = 2.5)+
   aes(colour=factor(BH.ID))+xlab('Age (baseline) to Age+7 (0.2yr)')+ylab(yvars.txt[k])+
   ggtitle("Shannon Entropy")+labs(col='BH.ID')+
-  theme_classic(base_size = 30) +
+  theme_classic(base_size = 40) +
   theme(axis.title.x = element_text(face = "bold"),
         axis.text.x = element_text(face = "bold"),
         axis.title.y = element_text(face = "bold"),
