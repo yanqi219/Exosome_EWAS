@@ -956,6 +956,42 @@ png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_l
 ggarrange(Basos[2][[1]], CarbonDioxideTotal[2][[1]], Creatinine[2][[1]], eGFRIfAfricnAm[2][[1]], eGFRIfNonAfricnAm[2][[1]], ImmunoglobulinGQn[2][[1]], ImmunoglobulinMQn[2][[1]], LH[2][[1]], MCHC[2][[1]], MCH[2][[1]], MCV[2][[1]], RDW[2][[1]], labels = NA, ncol = 2, nrow = 6, vjust = 1,font.label = list(size = 22, face = "bold"))
 dev.off()
 ```
+
+#### TL length and mtDNA
+
+```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+# clean the data
+id <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Biomarkers/TL_mtDNA_cleaned.xlsx", sheetName = "id")
+tl_matrix <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Biomarkers/TL_mtDNA_cleaned.xlsx", sheetName = "TL") %>%
+  dplyr::left_join(id, by = "Tx")
+mtDNA_matrix <- xlsx::read.xlsx(file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Biomarkers/TL_mtDNA_cleaned.xlsx", sheetName = "mtdna") %>%
+  dplyr::left_join(id, by = "Tx")
+
+sample_matrix <- sample_matrix %>%
+  dplyr::left_join(tl_matrix, by = c("Tx", "Time", "BH.ID")) %>%
+  dplyr::left_join(mtDNA_matrix, by = c("Tx", "Time", "BH.ID"))
+
+# save(methy_matrix, sample_matrix, biomarker_matrix, file = "/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+```
+
+```{r, echo=TRUE, eval=FALSE, message=FALSE, warning=FALSE}
+load("/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Raw_data/data_used.RData")
+# DNAm clocks
+TL <- paired_t(var = "tl_Relative_fold_change")
+mtDNA <- paired_t(var = "mtDNA_Relative_fold_change")
+
+statistics <- rbind(unlist(TL[1]), unlist(mtDNA[1])) %>%
+  as.data.frame() %>%
+  dplyr::mutate(clock = c("Relative fold change TL", "Relative fold change mtDNA"))
+
+# Paired barplots
+png(file="/Users/qiyan/Dropbox/Horvath_Lab/Onging_Project/Exosome_EWAS_Clement_local/Results/Figures/AIs/TL_boxplot.png", width=2200, height=1600)
+# ggarrange(AgeAccelerationResidual[2][[1]], AgeAccelerationResidualHannum[2][[1]], DNAmAgeSkinBloodClockAdjAge[2][[1]], DNAmTLAdjAge[2][[1]], AgeAccelPheno[2][[1]], AgeAccelGrim[2][[1]], labels = c("AgeAccelHorvath", "AgeAccelHannum", "AgeAccelSkinBlood", "AgeAccelTL","AgeAccelPheno", "AgeAccelGrim"),
+#           ncol = 3, nrow = 2, vjust = 1,font.label = list(size = 22, face = "bold"))
+ggarrange(TL[2][[1]], mtDNA[2][[1]], labels = NA, ncol = 2, nrow = 1, vjust = 1,font.label = list(size = 22, face = "bold"))
+dev.off()
+```
  
 ## EWAS
 
